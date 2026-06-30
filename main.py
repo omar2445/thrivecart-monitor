@@ -56,6 +56,12 @@ def _verify_signature(body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature.removeprefix("sha256="))
 
 
+@app.get("/webhook/thrivecart", tags=["Webhooks"])
+async def thrivecart_webhook_verify():
+    """ThriveCart pings this with GET to verify the URL is reachable."""
+    return {"ok": True}
+
+
 @app.post("/webhook/thrivecart", tags=["Webhooks"])
 async def thrivecart_webhook(
     request: Request,

@@ -166,26 +166,14 @@
   <!-- Import Section -->
   <div class="import-box">
     <div class="info">
-      <h3>Import Existing Subscribers from ThriveCart</h3>
-      <p>Export your transactions from ThriveCart and upload the CSV to populate the dashboard with all current subscribers.</p>
-      <ol>
-        <li>Go to ThriveCart → <strong>Transactions</strong></li>
-        <li>Click <strong>Export</strong> (top right)</li>
-        <li>Choose <strong>CSV</strong> and download</li>
-        <li>Upload the file here</li>
-      </ol>
+      <h3>Sync Subscribers from ThriveCart</h3>
+      <p>Pull all existing subscribers and transactions directly from your ThriveCart account with one click.</p>
     </div>
-    <div style="display:flex; flex-direction:column; gap:12px; align-items:flex-start;">
-      <form method="POST" action="/sync-thrivecart">
-        <button type="submit" style="background:#16a34a;color:white;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;">
-          ⟳ Sync All from ThriveCart API
-        </button>
-      </form>
-      <form class="import-form" method="POST" action="/import-csv" enctype="multipart/form-data">
-        <input type="file" name="file" accept=".csv" required>
-        <button type="submit">Upload CSV instead</button>
-      </form>
-    </div>
+    <form method="POST" action="/sync-thrivecart">
+      <button type="submit" style="background:#16a34a;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">
+        ⟳ Sync All from ThriveCart
+      </button>
+    </form>
   </div>
 
   <!-- Summary Cards -->

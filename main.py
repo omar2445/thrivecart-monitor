@@ -56,36 +56,34 @@ def _verify_signature(body: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature.removeprefix("sha256="))
 
 
-@app.get("/webhook/thrivecart", tags=["Webhooks"])
-async def thrivecart_webhook_verify():
-    """ThriveCart pings this with GET to verify the URL is reachable."""
-    return {"ok": True}
-
-
-@app.post("/webhook/thrivecart", tags=["Webhooks"])
+@app.api_route("/webhook/thrivecart", methods=["GET", "POST", "HEAD"], tags=["Webhooks"])
 async def thrivecart_webhook(
     request: Request,
     db: Session = Depends(get_db),
-    x_thrivecart_signature: str | None = Header(default=None),
 ):
-    body = await request.body()
-
-    # Return 200 for empty verification pings from ThriveCart
-    if not body or body.strip() in (b"", b"{}", b"[]"):
+    if request.method in ("GET", "HEAD"):
         return {"ok": True}
 
-    if not _verify_signature(body, x_thrivecart_signature):
-        raise HTTPException(status_code=401, detail="Invalid webhook signature")
-
     try:
-        payload = json.loads(body)
-    except json.JSONDecodeError:
-        # Still return 200 so ThriveCart doesn't retry indefinitely
-        logger.warning("Received non-JSON webhook body: %s", body[:200])
-        return {"ok": True, "warning": "non-json body ignored"}
+        body = await request.body()
+        logger.info("Webhook received — method: %s  bytes: %d  body: %s",
+                    request.method, len(body), body[:300])
 
-    result = process_webhook(payload, db)
-    return {"ok": True, **result}
+        if not body or body.strip() in (b"", b"{}", b"[]"):
+            return {"ok": True}
+
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            logger.warning("Non-JSON webhook body (form-encoded?): %s", body[:300])
+            return {"ok": True}
+
+        result = process_webhook(payload, db)
+        return {"ok": True, **result}
+
+    except Exception as exc:
+        logger.exception("Unhandled error in webhook: %s", exc)
+        return {"ok": True, "error": str(exc)}
 
 
 @app.get("/health", tags=["Health"])

@@ -175,10 +175,17 @@
         <li>Upload the file here</li>
       </ol>
     </div>
-    <form class="import-form" method="POST" action="/import-csv" enctype="multipart/form-data">
-      <input type="file" name="file" accept=".csv" required>
-      <button type="submit">Import CSV</button>
-    </form>
+    <div style="display:flex; flex-direction:column; gap:12px; align-items:flex-start;">
+      <form method="POST" action="/sync-thrivecart">
+        <button type="submit" style="background:#16a34a;color:white;border:none;border-radius:8px;padding:10px 20px;font-size:13px;font-weight:600;cursor:pointer;">
+          ⟳ Sync All from ThriveCart API
+        </button>
+      </form>
+      <form class="import-form" method="POST" action="/import-csv" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".csv" required>
+        <button type="submit">Upload CSV instead</button>
+      </form>
+    </div>
   </div>
 
   <!-- Summary Cards -->

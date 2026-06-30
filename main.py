@@ -8,6 +8,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -248,6 +249,144 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
 @app.get("/", response_class=HTMLResponse, tags=["Dashboard"])
 def dashboard(request: Request, db: Session = Depends(get_db)):
     return _render_dashboard(request, db)
+
+
+def _upsert_from_api_row(db: Session, row: dict) -> bool:
+    """Save one transaction row from ThriveCart API into the DB. Returns True if new."""
+    customer = row.get("customer", {})
+    product  = row.get("product", {})
+    order    = row.get("order", row)  # some responses put fields at root level
+
+    email = (customer.get("email") or row.get("email") or "").strip().lower()
+    if not email:
+        return False
+
+    name = (
+        f"{customer.get('firstname', '')} {customer.get('lastname', '')}".strip()
+        or customer.get("name", "")
+        or row.get("customer_name", "")
+    )
+    product_name = product.get("name") or row.get("product_name", "")
+    product_id   = str(product.get("id") or row.get("product_id", ""))
+    sub_id       = str(
+        row.get("subscription_id") or order.get("subscription_id")
+        or row.get("id") or row.get("order_id") or f"api-{email}-{product_id}"
+    )
+    amount_raw = row.get("amount") or order.get("order_total") or row.get("revenue") or 0
+    try:
+        amount = float(str(amount_raw).replace("$", "").replace(",", ""))
+    except (ValueError, TypeError):
+        amount = 0.0
+
+    date_raw = row.get("created") or row.get("created_at") or row.get("date")
+    if isinstance(date_raw, (int, float)):
+        last_paid = datetime.utcfromtimestamp(date_raw)
+    elif isinstance(date_raw, str):
+        last_paid = _parse_date(date_raw)
+    else:
+        last_paid = None
+
+    next_due = (last_paid + timedelta(days=30)) if last_paid else None
+
+    status_raw = (row.get("status") or "").lower()
+    status = "cancelled" if status_raw in ("cancelled", "canceled", "refunded") else "active"
+
+    sub = db.query(Subscription).filter_by(thrivecart_subscription_id=sub_id).first()
+    is_new = sub is None
+    if is_new:
+        sub = Subscription(
+            thrivecart_subscription_id=sub_id,
+            customer_email=email,
+            customer_name=name,
+            product_name=product_name,
+            product_id=product_id,
+            amount=amount,
+            status=status,
+            last_payment_date=last_paid,
+            next_payment_date=next_due,
+        )
+        db.add(sub)
+    else:
+        if last_paid and (sub.last_payment_date is None or last_paid > sub.last_payment_date):
+            sub.last_payment_date = last_paid
+            sub.next_payment_date = next_due
+        sub.customer_name = name or sub.customer_name
+        sub.product_name  = product_name or sub.product_name
+        sub.amount        = amount or sub.amount
+    return is_new
+
+
+@app.post("/sync-thrivecart", response_class=HTMLResponse, tags=["Dashboard"])
+async def sync_thrivecart(request: Request, db: Session = Depends(get_db)):
+    api_key = os.getenv("THRIVECART_API_KEY", "")
+    if not api_key:
+        return _render_dashboard(request, db,
+            "THRIVECART_API_KEY is not set. Add it in Railway → Variables.", "error")
+
+    imported = 0
+    page     = 1
+    errors   = []
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        while True:
+            try:
+                resp = await client.get(
+                    "https://thrivecart.com/api/external/transactions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Accept": "application/json",
+                    },
+                    params={"page": page, "limit": 100},
+                )
+                logger.info("ThriveCart API page %d — status %d — body: %s",
+                            page, resp.status_code, resp.text[:500])
+
+                if resp.status_code == 401:
+                    return _render_dashboard(request, db,
+                        "Invalid API key. Check THRIVECART_API_KEY in Railway Variables.", "error")
+                if resp.status_code == 404:
+                    return _render_dashboard(request, db,
+                        "ThriveCart API endpoint not found. The API may require a different URL — "
+                        "check Railway logs for the raw response.", "error")
+                if resp.status_code != 200:
+                    return _render_dashboard(request, db,
+                        f"ThriveCart API returned {resp.status_code}: {resp.text[:300]}", "error")
+
+                data = resp.json()
+
+                # Handle different response shapes
+                rows = (
+                    data.get("transactions")
+                    or data.get("data")
+                    or data.get("orders")
+                    or (data if isinstance(data, list) else [])
+                )
+
+                if not rows:
+                    break
+
+                for row in rows:
+                    if _upsert_from_api_row(db, row):
+                        imported += 1
+
+                db.commit()
+
+                # Stop if fewer results than page size (last page)
+                if len(rows) < 100:
+                    break
+                page += 1
+
+            except Exception as exc:
+                logger.exception("API sync error on page %d: %s", page, exc)
+                errors.append(str(exc))
+                break
+
+    if errors:
+        return _render_dashboard(request, db,
+            f"Sync completed with errors: {errors[0]}", "error")
+
+    msg = f"Sync complete — {imported} new subscriber(s) added from ThriveCart."
+    return _render_dashboard(request, db, msg, "success")
 
 
 @app.get("/health", tags=["Health"])

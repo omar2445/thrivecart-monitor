@@ -1,5 +1,7 @@
+import csv
 import hashlib
 import hmac
+import io
 import json
 import logging
 import os
@@ -7,12 +9,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import get_db, init_db
+from models import Subscription
 from scheduler import create_scheduler
 from webhook import process_webhook
 
@@ -92,11 +95,124 @@ async def thrivecart_webhook(
         return {"ok": True, "error": str(exc)}
 
 
-@app.get("/", response_class=HTMLResponse, tags=["Dashboard"])
-def dashboard(request: Request, db: Session = Depends(get_db)):
-    from models import Subscription
-    cutoff = datetime.utcnow() - timedelta(hours=OVERDUE_HOURS)
+def _find_col(headers: list[str], candidates: list[str]) -> str | None:
+    """Find the first matching column name (case-insensitive)."""
+    h = [c.strip().lower() for c in headers]
+    for c in candidates:
+        if c.lower() in h:
+            return headers[h.index(c.lower())]
+    return None
 
+
+def _parse_date(value: str) -> datetime | None:
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%b %d, %Y",
+                "%B %d, %Y", "%Y-%m-%d %H:%M:%S", "%m/%d/%Y %H:%M:%S"):
+        try:
+            return datetime.strptime(value.strip(), fmt)
+        except ValueError:
+            continue
+    return None
+
+
+@app.post("/import-csv", tags=["Dashboard"])
+async def import_csv(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")  # handles BOM from Excel exports
+    except UnicodeDecodeError:
+        text = content.decode("latin-1")
+
+    reader = csv.DictReader(io.StringIO(text))
+    headers = reader.fieldnames or []
+
+    email_col   = _find_col(headers, ["email", "customer email", "buyer email", "e-mail"])
+    fname_col   = _find_col(headers, ["first name", "firstname", "buyer first name", "customer first name"])
+    lname_col   = _find_col(headers, ["last name", "lastname", "buyer last name", "customer last name"])
+    name_col    = _find_col(headers, ["name", "customer name", "full name", "buyer name"])
+    product_col = _find_col(headers, ["product", "product name", "item name", "item"])
+    amount_col  = _find_col(headers, ["amount", "revenue", "total", "price", "order total", "charge amount"])
+    date_col    = _find_col(headers, ["date", "created at", "created", "order date", "transaction date", "payment date"])
+    sub_id_col  = _find_col(headers, ["subscription id", "subscription_id", "sub id", "recurring id"])
+    status_col  = _find_col(headers, ["status", "order status", "payment status"])
+
+    if not email_col:
+        return _render_dashboard(request, db, "Could not find an Email column in the CSV. Please check the file.", "error")
+
+    imported = 0
+    skipped  = 0
+    seen: dict[str, dict] = {}  # subscription_id or email+product → best row
+
+    for row in reader:
+        email = row.get(email_col, "").strip().lower()
+        if not email:
+            skipped += 1
+            continue
+
+        status_val = row.get(status_col, "").strip().lower() if status_col else ""
+        if status_val in ("refunded", "chargebacked", "disputed"):
+            skipped += 1
+            continue
+
+        sub_id = row.get(sub_id_col, "").strip() if sub_id_col else ""
+        product = row.get(product_col, "").strip() if product_col else ""
+        key = sub_id if sub_id else f"{email}||{product}"
+
+        date_val = _parse_date(row.get(date_col, "")) if date_col else None
+
+        # Keep the most recent payment row per subscription
+        if key not in seen or (date_val and seen[key]["date"] and date_val > seen[key]["date"]):
+            seen[key] = {
+                "email": email,
+                "name": (
+                    f"{row.get(fname_col,'').strip()} {row.get(lname_col,'').strip()}".strip()
+                    if fname_col else row.get(name_col, "").strip() if name_col else ""
+                ),
+                "product": product,
+                "sub_id": sub_id or f"imported-{email}-{product}".replace(" ", "-"),
+                "amount": float(row.get(amount_col, 0) or 0) if amount_col else 0.0,
+                "date": date_val,
+                "status": status_val,
+            }
+
+    for key, data in seen.items():
+        last_paid = data["date"]
+        next_due  = (last_paid + timedelta(days=30)) if last_paid else None
+
+        sub = db.query(Subscription).filter_by(
+            thrivecart_subscription_id=data["sub_id"]
+        ).first()
+
+        if sub is None:
+            sub = Subscription(
+                thrivecart_subscription_id=data["sub_id"],
+                customer_email=data["email"],
+                customer_name=data["name"],
+                product_name=data["product"],
+                amount=data["amount"],
+                status="active",
+                last_payment_date=last_paid,
+                next_payment_date=next_due,
+            )
+            db.add(sub)
+        else:
+            if last_paid and (sub.last_payment_date is None or last_paid > sub.last_payment_date):
+                sub.last_payment_date = last_paid
+                sub.next_payment_date = next_due
+            sub.customer_name = data["name"] or sub.customer_name
+            sub.product_name  = data["product"] or sub.product_name
+            sub.amount        = data["amount"] or sub.amount
+
+        imported += 1
+
+    db.commit()
+    msg = f"Successfully imported {imported} subscriber(s)."
+    if skipped:
+        msg += f" {skipped} row(s) skipped (refunds or missing email)."
+    return _render_dashboard(request, db, msg, "success")
+
+
+def _render_dashboard(request: Request, db: Session, message: str = "", message_type: str = "success"):
+    cutoff   = datetime.utcnow() - timedelta(hours=OVERDUE_HOURS)
     all_subs = db.query(Subscription).order_by(Subscription.updated_at.desc()).all()
 
     for s in all_subs:
@@ -111,21 +227,27 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
         )
 
     overdue = [s for s in all_subs if s.is_overdue]
-
     stats = {
-        "total": len(all_subs),
-        "active": sum(1 for s in all_subs if s.status == "active" and not s.is_overdue),
-        "overdue": len(overdue),
+        "total":    len(all_subs),
+        "active":   sum(1 for s in all_subs if s.status == "active" and not s.is_overdue),
+        "overdue":  len(overdue),
         "inactive": sum(1 for s in all_subs if s.status in ("cancelled", "expired")),
     }
 
     return templates.TemplateResponse("dashboard.html", {
-        "request": request,
+        "request":      request,
         "subscriptions": all_subs,
-        "overdue": overdue,
-        "stats": stats,
-        "now": datetime.utcnow().strftime("%b %d, %Y at %H:%M UTC"),
+        "overdue":      overdue,
+        "stats":        stats,
+        "now":          datetime.utcnow().strftime("%b %d, %Y at %H:%M UTC"),
+        "message":      message,
+        "message_type": message_type,
     })
+
+
+@app.get("/", response_class=HTMLResponse, tags=["Dashboard"])
+def dashboard(request: Request, db: Session = Depends(get_db)):
+    return _render_dashboard(request, db)
 
 
 @app.get("/health", tags=["Health"])

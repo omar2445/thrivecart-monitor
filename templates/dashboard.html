@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ThriveCart Payment Monitor</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
+
+    header {
+      background: #1a1a2e;
+      color: white;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 20px; font-weight: 600; }
+    header span { font-size: 13px; opacity: 0.6; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+
+    /* Summary cards */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 36px; }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .card .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+    .card .value { font-size: 32px; font-weight: 700; }
+    .card.red .value  { color: #e53e3e; }
+    .card.green .value{ color: #38a169; }
+    .card.blue .value { color: #3182ce; }
+    .card.gray .value { color: #718096; }
+
+    /* Tables */
+    .section { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); margin-bottom: 32px; overflow: hidden; }
+    .section-header {
+      padding: 18px 24px;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section-header h2 { font-size: 16px; font-weight: 600; }
+    .badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 99px;
+    }
+    .badge.red   { background: #fff5f5; color: #e53e3e; }
+    .badge.green { background: #f0fff4; color: #38a169; }
+    .badge.blue  { background: #ebf8ff; color: #3182ce; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left;
+      padding: 12px 24px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: #888;
+      background: #fafafa;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    td {
+      padding: 14px 24px;
+      font-size: 14px;
+      border-bottom: 1px solid #f7f7f7;
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafafa; }
+
+    .status-pill {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .status-active    { background: #f0fff4; color: #38a169; }
+    .status-overdue   { background: #fff5f5; color: #e53e3e; }
+    .status-failed    { background: #fff5f5; color: #e53e3e; }
+    .status-cancelled { background: #f7f7f7; color: #888; }
+    .status-expired   { background: #f7f7f7; color: #888; }
+
+    .overdue-row td { background: #fffafa; }
+    .overdue-row:hover td { background: #fff0f0; }
+
+    .empty { text-align: center; padding: 40px; color: #aaa; font-size: 14px; }
+    .email { color: #555; font-size: 13px; }
+    .amount { font-weight: 600; }
+    .date { color: #555; font-size: 13px; }
+    .date.overdue { color: #e53e3e; font-weight: 600; }
+
+    .refresh-note { text-align: right; font-size: 12px; color: #aaa; margin-bottom: 24px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>ThriveCart Payment Monitor</h1>
+  <span>Auto-refreshes every 60 seconds</span>
+</header>
+
+<div class="container">
+  <p class="refresh-note">Last updated: {{ now }}</p>
+
+  <!-- Summary Cards -->
+  <div class="cards">
+    <div class="card blue">
+      <div class="label">Total Subscribers</div>
+      <div class="value">{{ stats.total }}</div>
+    </div>
+    <div class="card green">
+      <div class="label">Active & Paid</div>
+      <div class="value">{{ stats.active }}</div>
+    </div>
+    <div class="card red">
+      <div class="label">Overdue (24h+)</div>
+      <div class="value">{{ stats.overdue }}</div>
+    </div>
+    <div class="card gray">
+      <div class="label">Cancelled / Expired</div>
+      <div class="value">{{ stats.inactive }}</div>
+    </div>
+  </div>
+
+  <!-- Overdue Section -->
+  <div class="section">
+    <div class="section-header">
+      <h2>Overdue Payments</h2>
+      <span class="badge red">{{ overdue | length }} overdue</span>
+    </div>
+    {% if overdue %}
+    <table>
+      <thead>
+        <tr>
+          <th>Customer</th>
+          <th>Email</th>
+          <th>Product</th>
+          <th>Amount</th>
+          <th>Was Due</th>
+          <th>Days Overdue</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in overdue %}
+        <tr class="overdue-row">
+          <td><strong>{{ s.customer_name or '—' }}</strong></td>
+          <td class="email">{{ s.customer_email }}</td>
+          <td>{{ s.product_name or '—' }}</td>
+          <td class="amount">${{ "%.2f"|format(s.amount or 0) }}</td>
+          <td class="date overdue">{{ s.next_payment_date.strftime('%b %d, %Y') if s.next_payment_date else '—' }}</td>
+          <td class="date overdue">{{ s.days_overdue }} day{{ 's' if s.days_overdue != 1 else '' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No overdue payments right now.</div>
+    {% endif %}
+  </div>
+
+  <!-- All Subscribers Section -->
+  <div class="section">
+    <div class="section-header">
+      <h2>All Subscribers</h2>
+      <span class="badge blue">{{ subscriptions | length }} total</span>
+    </div>
+    {% if subscriptions %}
+    <table>
+      <thead>
+        <tr>
+          <th>Customer</th>
+          <th>Email</th>
+          <th>Product</th>
+          <th>Amount</th>
+          <th>Status</th>
+          <th>Last Payment</th>
+          <th>Next Due</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in subscriptions %}
+        <tr {% if s.is_overdue %}class="overdue-row"{% endif %}>
+          <td><strong>{{ s.customer_name or '—' }}</strong></td>
+          <td class="email">{{ s.customer_email }}</td>
+          <td>{{ s.product_name or '—' }}</td>
+          <td class="amount">${{ "%.2f"|format(s.amount or 0) }}</td>
+          <td>
+            <span class="status-pill status-{{ 'overdue' if s.is_overdue else s.status }}">
+              {{ 'overdue' if s.is_overdue else s.status }}
+            </span>
+          </td>
+          <td class="date">{{ s.last_payment_date.strftime('%b %d, %Y') if s.last_payment_date else '—' }}</td>
+          <td class="date {{ 'overdue' if s.is_overdue else '' }}">
+            {{ s.next_payment_date.strftime('%b %d, %Y') if s.next_payment_date else '—' }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">No subscribers yet. They will appear here after their first ThriveCart payment.</div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+  // Auto-refresh every 60 seconds
+  setTimeout(() => location.reload(), 60000);
+</script>
+
+</body>
+</html>

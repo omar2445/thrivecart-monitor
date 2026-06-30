@@ -4,9 +4,12 @@ import json
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import get_db, init_db
@@ -22,6 +25,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 THRIVECART_SECRET = os.getenv("THRIVECART_SECRET", "")
+OVERDUE_HOURS = int(os.getenv("OVERDUE_HOURS", "24"))
+
+templates = Jinja2Templates(directory="templates")
 
 
 @asynccontextmanager
@@ -84,6 +90,42 @@ async def thrivecart_webhook(
     except Exception as exc:
         logger.exception("Unhandled error in webhook: %s", exc)
         return {"ok": True, "error": str(exc)}
+
+
+@app.get("/", response_class=HTMLResponse, tags=["Dashboard"])
+def dashboard(request: Request, db: Session = Depends(get_db)):
+    from models import Subscription
+    cutoff = datetime.utcnow() - timedelta(hours=OVERDUE_HOURS)
+
+    all_subs = db.query(Subscription).order_by(Subscription.updated_at.desc()).all()
+
+    for s in all_subs:
+        s.is_overdue = (
+            s.status == "active"
+            and s.next_payment_date is not None
+            and s.next_payment_date <= cutoff
+        )
+        s.days_overdue = (
+            (datetime.utcnow() - s.next_payment_date).days
+            if s.is_overdue and s.next_payment_date else 0
+        )
+
+    overdue = [s for s in all_subs if s.is_overdue]
+
+    stats = {
+        "total": len(all_subs),
+        "active": sum(1 for s in all_subs if s.status == "active" and not s.is_overdue),
+        "overdue": len(overdue),
+        "inactive": sum(1 for s in all_subs if s.status in ("cancelled", "expired")),
+    }
+
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "subscriptions": all_subs,
+        "overdue": overdue,
+        "stats": stats,
+        "now": datetime.utcnow().strftime("%b %d, %Y at %H:%M UTC"),
+    })
 
 
 @app.get("/health", tags=["Health"])

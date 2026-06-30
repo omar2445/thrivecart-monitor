@@ -70,13 +70,19 @@ async def thrivecart_webhook(
 ):
     body = await request.body()
 
+    # Return 200 for empty verification pings from ThriveCart
+    if not body or body.strip() in (b"", b"{}", b"[]"):
+        return {"ok": True}
+
     if not _verify_signature(body, x_thrivecart_signature):
         raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
     try:
         payload = json.loads(body)
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        # Still return 200 so ThriveCart doesn't retry indefinitely
+        logger.warning("Received non-JSON webhook body: %s", body[:200])
+        return {"ok": True, "warning": "non-json body ignored"}
 
     result = process_webhook(payload, db)
     return {"ok": True, **result}

@@ -22,14 +22,20 @@ OVERDUE_HOURS = int(os.getenv("OVERDUE_HOURS", "24"))
 
 
 def _find_overdue(db: Session) -> list[Subscription]:
-    """Return active subscriptions whose next_payment_date has passed by OVERDUE_HOURS."""
+    """Return subscriptions that need a payment alert:
+    - status='failed': ThriveCart explicitly reported a payment failure
+    - status='active' but next_payment_date is 24h+ past: missed payment, no webhook received
+    """
     cutoff = datetime.utcnow() - timedelta(hours=OVERDUE_HOURS)
+    from sqlalchemy import or_
     return (
         db.query(Subscription)
         .filter(
-            Subscription.status == "active",
-            Subscription.next_payment_date <= cutoff,
             Subscription.next_payment_date.isnot(None),
+            or_(
+                Subscription.status == "failed",
+                (Subscription.status == "active") & (Subscription.next_payment_date <= cutoff),
+            )
         )
         .all()
     )

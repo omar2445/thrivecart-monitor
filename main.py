@@ -306,6 +306,7 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
             next_payment_date=next_due,
         )
         db.add(sub)
+        db.flush()  # write to DB within transaction so duplicates on later pages are found
     else:
         if last_paid and (sub.last_payment_date is None or last_paid > sub.last_payment_date):
             sub.last_payment_date = last_paid
@@ -404,6 +405,7 @@ async def sync_thrivecart(request: Request, db: Session = Depends(get_db)):
 
             except Exception as exc:
                 logger.exception("API sync error on page %d: %s", page, exc)
+                db.rollback()
                 errors.append(str(exc))
                 break
 

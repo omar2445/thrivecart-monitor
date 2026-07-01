@@ -11,12 +11,12 @@ from datetime import datetime, timedelta
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
-from database import get_db, init_db
+from database import SessionLocal, get_db, init_db
 from models import Subscription
 from scheduler import create_scheduler
 from webhook import process_webhook
@@ -28,6 +28,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# Prevents multiple syncs running at the same time
+_sync_running = False
+_sync_status  = "idle"  # idle | running | done | error
 
 THRIVECART_SECRET = os.getenv("THRIVECART_SECRET", "")
 OVERDUE_HOURS = int(os.getenv("OVERDUE_HOURS", "24"))
@@ -287,17 +291,18 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
     )
     amount_raw = row.get("amount") or order.get("order_total") or row.get("revenue") or 0
     try:
-        amount = float(str(amount_raw).replace("$", "").replace(",", ""))
+        # ThriveCart returns amounts in cents (e.g. 25000 = $250.00)
+        amount = float(str(amount_raw).replace("$", "").replace(",", "")) / 100
     except (ValueError, TypeError):
         amount = 0.0
 
-    date_raw = row.get("created") or row.get("created_at") or row.get("date")
-    if isinstance(date_raw, (int, float)):
-        last_paid = datetime.utcfromtimestamp(date_raw)
-    elif isinstance(date_raw, str):
-        last_paid = _parse_date(date_raw)
+    # Prefer Unix timestamp, fall back to date string
+    ts = row.get("timestamp") or row.get("created") or row.get("created_at")
+    if isinstance(ts, (int, float)):
+        last_paid = datetime.utcfromtimestamp(ts)
     else:
-        last_paid = None
+        date_raw = row.get("date") or row.get("time") or row.get("created_at")
+        last_paid = _parse_date(date_raw) if isinstance(date_raw, str) else None
 
     next_due = (last_paid + timedelta(days=30)) if last_paid else None
 
@@ -330,110 +335,100 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
     return is_new
 
 
+async def _run_sync_background():
+    """Runs the full ThriveCart sync in the background."""
+    global _sync_running, _sync_status
+    _sync_running = True
+    _sync_status  = "running"
+    api_key = os.getenv("THRIVECART_API_KEY", "")
+    imported = updated = page = 0
+    page_size = None
+    four_months_ago = datetime.utcnow() - timedelta(days=120)
+
+    db = SessionLocal()
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            while True:
+                try:
+                    resp = await client.get(
+                        "https://thrivecart.com/api/external/transactions",
+                        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+                        params={"page": page + 1, "limit": 100, "per_page": 100},
+                    )
+                    page += 1
+                    logger.info("Sync page %d — status %d", page, resp.status_code)
+
+                    if resp.status_code == 429:
+                        logger.warning("Rate limited — waiting 15s")
+                        await asyncio.sleep(15)
+                        page -= 1  # retry same page
+                        continue
+                    if resp.status_code != 200:
+                        logger.error("API error %d: %s", resp.status_code, resp.text[:200])
+                        break
+
+                    rows = resp.json().get("transactions") or resp.json().get("data") or []
+                    if not rows:
+                        break
+
+                    if page_size is None:
+                        page_size = len(rows)
+
+                    stop_early = False
+                    for row in rows:
+                        ts = row.get("timestamp")
+                        row_date = datetime.utcfromtimestamp(ts) if ts else None
+                        if row_date and row_date < four_months_ago:
+                            stop_early = True
+                            continue
+                        is_new = _upsert_from_api_row(db, row)
+                        if is_new:
+                            imported += 1
+                        else:
+                            updated += 1
+
+                    db.commit()
+
+                    if stop_early or len(rows) < (page_size or 1):
+                        break
+
+                    await asyncio.sleep(2)
+
+                except Exception as exc:
+                    logger.exception("Sync error page %d: %s", page, exc)
+                    db.rollback()
+                    break
+
+        _sync_status = f"done:{imported}:{updated}:{page}"
+        logger.info("Sync complete — %d new, %d updated across %d pages", imported, updated, page)
+    finally:
+        db.close()
+        _sync_running = False
+
+
 @app.api_route("/sync-thrivecart", methods=["GET", "POST"], response_class=HTMLResponse, tags=["Dashboard"])
-async def sync_thrivecart(request: Request, db: Session = Depends(get_db)):
+async def sync_thrivecart(request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    global _sync_running, _sync_status
     api_key = os.getenv("THRIVECART_API_KEY", "")
     if not api_key:
         return _render_dashboard(request, db,
             "THRIVECART_API_KEY is not set. Add it in Railway → Variables.", "error")
 
-    imported   = 0
-    updated    = 0
-    page       = 1
-    page_size  = None   # detected from first response
-    errors     = []
-    four_months_ago = datetime.utcnow() - timedelta(days=120)
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        while True:
-            try:
-                resp = await client.get(
-                    "https://thrivecart.com/api/external/transactions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Accept": "application/json",
-                    },
-                    params={
-                        "page": page,
-                        "limit": 100,
-                        "per_page": 100,
-                    },
-                )
-                logger.info("ThriveCart API page %d — status %d — body: %s",
-                            page, resp.status_code, resp.text[:800])
-
-                if resp.status_code == 401:
-                    return _render_dashboard(request, db,
-                        "Invalid API key. Check THRIVECART_API_KEY in Railway Variables.", "error")
-                if resp.status_code == 404:
-                    return _render_dashboard(request, db,
-                        "ThriveCart API endpoint not found — check Railway logs for the raw response.", "error")
-                if resp.status_code == 429:
-                    logger.warning("Rate limited by ThriveCart on page %d — waiting 10s", page)
-                    await asyncio.sleep(10)
-                    continue  # retry same page
-                if resp.status_code != 200:
-                    return _render_dashboard(request, db,
-                        f"ThriveCart API returned {resp.status_code}: {resp.text[:300]}", "error")
-
-                data = resp.json()
-
-                # Handle different response shapes ThriveCart might return
-                rows = (
-                    data.get("transactions")
-                    or data.get("data")
-                    or data.get("orders")
-                    or data.get("results")
-                    or (data if isinstance(data, list) else [])
-                )
-
-                if not rows:
-                    break
-
-                # Detect actual page size from first response
-                if page_size is None:
-                    page_size = len(rows)
-
-                # Filter to last 4 months
-                for row in rows:
-                    date_raw = row.get("created") or row.get("created_at") or row.get("date")
-                    if isinstance(date_raw, (int, float)):
-                        row_date = datetime.utcfromtimestamp(date_raw)
-                    elif isinstance(date_raw, str):
-                        row_date = _parse_date(date_raw)
-                    else:
-                        row_date = None
-
-                    if row_date and row_date < four_months_ago:
-                        continue  # skip older than 4 months
-
-                    is_new = _upsert_from_api_row(db, row)
-                    if is_new:
-                        imported += 1
-                    else:
-                        updated += 1
-
-                db.commit()
-
-                # Stop only when we get an empty page or fewer than detected page size
-                if len(rows) < (page_size or 1):
-                    break
-                page += 1
-                await asyncio.sleep(2)  # respect ThriveCart rate limits
-
-            except Exception as exc:
-                logger.exception("API sync error on page %d: %s", page, exc)
-                db.rollback()
-                errors.append(str(exc))
-                break
-
-    if errors:
+    if _sync_running:
         return _render_dashboard(request, db,
-            f"Sync completed with errors: {errors[0]}", "error")
+            "Sync already in progress — check back in a minute. The dashboard will update automatically.", "success")
 
-    msg = (f"Sync complete — {imported} new subscriber(s) added, "
-           f"{updated} updated. Data covers the last 4 months ({page - 1} page(s) fetched).")
-    return _render_dashboard(request, db, msg, "success")
+    if _sync_status.startswith("done:"):
+        _, imp, upd, pages = _sync_status.split(":")
+        msg = f"Last sync imported {imp} new subscriber(s), updated {upd}, across {pages} page(s)."
+        _sync_status = "idle"
+        return _render_dashboard(request, db, msg, "success")
+
+    background_tasks.add_task(_run_sync_background)
+    _sync_running = True
+    _sync_status  = "running"
+    return _render_dashboard(request, db,
+        "Sync started in the background. This page refreshes automatically every 60 seconds — your subscribers will appear shortly.", "success")
 
 
 @app.get("/health", tags=["Health"])

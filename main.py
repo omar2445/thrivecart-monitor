@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from database import SessionLocal, get_db, init_db
+from email_service import send_overdue_alert
 from models import Subscription
 from scheduler import create_scheduler
 from webhook import process_webhook
@@ -266,6 +267,28 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
 @app.get("/", response_class=HTMLResponse, tags=["Dashboard"])
 def dashboard(request: Request, db: Session = Depends(get_db)):
     return _render_dashboard(request, db)
+
+
+@app.api_route("/test-email", methods=["GET", "POST"], response_class=HTMLResponse, tags=["Dashboard"])
+async def test_email(request: Request, db: Session = Depends(get_db)):
+    notify_email = os.getenv("NOTIFY_EMAIL", "")
+    if not notify_email:
+        return _render_dashboard(request, db,
+            "NOTIFY_EMAIL n'est pas configuré dans Railway → Variables.", "error")
+    try:
+        await send_overdue_alert([{
+            "customer_name": "Jean Dupont (test)",
+            "customer_email": "test@example.com",
+            "product_name": "Abonnement mensuel",
+            "amount": 99.0,
+            "next_payment_date": datetime.utcnow(),
+        }])
+        return _render_dashboard(request, db,
+            f"Email de test envoyé avec succès à {notify_email}. Vérifiez votre boîte de réception (et les spams).", "success")
+    except Exception as exc:
+        logger.exception("Test email failed: %s", exc)
+        return _render_dashboard(request, db,
+            f"Échec de l'envoi : {exc}", "error")
 
 
 def _upsert_from_api_row(db: Session, row: dict) -> bool:

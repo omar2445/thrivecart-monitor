@@ -169,11 +169,18 @@
       <h3>Synchroniser les abonnés depuis ThriveCart</h3>
       <p>Importez tous vos abonnés et transactions directement depuis votre compte ThriveCart en un seul clic.</p>
     </div>
-    <form method="POST" action="/sync-thrivecart">
-      <button type="submit" style="background:#16a34a;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">
-        ⟳ Synchroniser depuis ThriveCart
-      </button>
-    </form>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;">
+      <form method="POST" action="/sync-thrivecart">
+        <button type="submit" style="background:#16a34a;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">
+          ⟳ Synchroniser depuis ThriveCart
+        </button>
+      </form>
+      <form method="POST" action="/test-email">
+        <button type="submit" style="background:#3182ce;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">
+          ✉ Tester l'envoi d'email
+        </button>
+      </form>
+    </div>
   </div>
 
   <!-- Summary Cards -->

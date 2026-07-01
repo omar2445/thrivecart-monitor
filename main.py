@@ -282,6 +282,7 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
         f"{customer.get('firstname', '')} {customer.get('lastname', '')}".strip()
         or customer.get("name", "")
         or row.get("customer_name", "")
+        or row.get("customer", {}).get("name", "")
     )
     product_name = product.get("name") or row.get("product_name", "")
     product_id   = str(product.get("id") or row.get("product_id", ""))
@@ -331,7 +332,7 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
             sub.next_payment_date = next_due
         sub.customer_name = name or sub.customer_name
         sub.product_name  = product_name or sub.product_name
-        sub.amount        = amount or sub.amount
+        sub.amount        = max(amount, sub.amount or 0)  # always keep the highest amount seen
     return is_new
 
 

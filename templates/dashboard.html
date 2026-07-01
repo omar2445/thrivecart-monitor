@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ThriveCart Payment Monitor</title>
+  <title>Moniteur de paiements ThriveCart</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f0f2f5; color: #333; }
@@ -151,12 +151,12 @@
 <body>
 
 <header>
-  <h1>ThriveCart Payment Monitor</h1>
-  <span>Auto-refreshes every 60 seconds</span>
+  <h1>Moniteur de paiements ThriveCart</h1>
+  <span>Actualisation automatique toutes les 60 secondes</span>
 </header>
 
 <div class="container">
-  <p class="refresh-note">Last updated: {{ now }}</p>
+  <p class="refresh-note">Dernière mise à jour : {{ now }}</p>
 
   <!-- Flash messages -->
   {% if message %}
@@ -166,12 +166,12 @@
   <!-- Import Section -->
   <div class="import-box">
     <div class="info">
-      <h3>Sync Subscribers from ThriveCart</h3>
-      <p>Pull all existing subscribers and transactions directly from your ThriveCart account with one click.</p>
+      <h3>Synchroniser les abonnés depuis ThriveCart</h3>
+      <p>Importez tous vos abonnés et transactions directement depuis votre compte ThriveCart en un seul clic.</p>
     </div>
     <form method="POST" action="/sync-thrivecart">
       <button type="submit" style="background:#16a34a;color:white;border:none;border-radius:8px;padding:12px 24px;font-size:14px;font-weight:600;cursor:pointer;">
-        ⟳ Sync All from ThriveCart
+        ⟳ Synchroniser depuis ThriveCart
       </button>
     </form>
   </div>
@@ -179,42 +179,42 @@
   <!-- Summary Cards -->
   <div class="cards">
     <div class="card blue">
-      <div class="label">Total Subscribers</div>
+      <div class="label">Total abonnés</div>
       <div class="value">{{ stats.total }}</div>
     </div>
     <div class="card green">
-      <div class="label">Active & Paid</div>
+      <div class="label">Actifs & payés</div>
       <div class="value">{{ stats.active }}</div>
     </div>
     <div class="card" style="border-left:4px solid #d97706">
-      <div class="label">Due Now</div>
+      <div class="label">À payer maintenant</div>
       <div class="value" style="color:#d97706">{{ stats.due }}</div>
     </div>
     <div class="card red">
-      <div class="label">Overdue (24h+)</div>
+      <div class="label">En retard (24h+)</div>
       <div class="value">{{ stats.overdue }}</div>
     </div>
     <div class="card gray">
-      <div class="label">Cancelled / Expired</div>
+      <div class="label">Annulés / Expirés</div>
       <div class="value">{{ stats.inactive }}</div>
     </div>
   </div>
 
-  <!-- Due Now Section -->
+  <!-- Section À payer maintenant -->
   <div class="section">
     <div class="section-header">
-      <h2>Due Now</h2>
-      <span class="badge" style="background:#fffbeb;color:#d97706">{{ due_now | length }} due</span>
+      <h2>À payer maintenant</h2>
+      <span class="badge" style="background:#fffbeb;color:#d97706">{{ due_now | length }} en attente</span>
     </div>
     {% if due_now %}
     <table>
       <thead>
         <tr>
-          <th>Customer</th>
-          <th>Email</th>
-          <th>Product</th>
-          <th>Amount</th>
-          <th>Due Date</th>
+          <th>Client</th>
+          <th>Courriel</th>
+          <th>Produit</th>
+          <th>Montant</th>
+          <th>Date d'échéance</th>
         </tr>
       </thead>
       <tbody>
@@ -223,35 +223,35 @@
           <td><strong>{{ s.customer_name or '—' }}</strong></td>
           <td class="email">{{ s.customer_email }}</td>
           <td>{{ s.product_name or '—' }}</td>
-          <td class="amount">${{ "%.2f"|format(s.amount or 0) }}</td>
+          <td class="amount">{{ "%.2f"|format(s.amount or 0) }} $</td>
           <td class="date" style="color:#d97706;font-weight:600">
-            {{ s.next_payment_date.strftime('%b %d, %Y') if s.next_payment_date else '—' }}
+            {{ s.next_payment_date.strftime('%d %b %Y') if s.next_payment_date else '—' }}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <div class="empty">No payments due right now.</div>
+    <div class="empty">Aucun paiement dû pour l'instant.</div>
     {% endif %}
   </div>
 
-  <!-- Overdue Section -->
+  <!-- Section Paiements en retard -->
   <div class="section">
     <div class="section-header">
-      <h2>Overdue Payments</h2>
-      <span class="badge red">{{ overdue | length }} overdue</span>
+      <h2>Paiements en retard</h2>
+      <span class="badge red">{{ overdue | length }} en retard</span>
     </div>
     {% if overdue %}
     <table>
       <thead>
         <tr>
-          <th>Customer</th>
-          <th>Email</th>
-          <th>Product</th>
-          <th>Amount</th>
-          <th>Was Due</th>
-          <th>Hours Overdue</th>
+          <th>Client</th>
+          <th>Courriel</th>
+          <th>Produit</th>
+          <th>Montant</th>
+          <th>Échéance</th>
+          <th>Retard</th>
         </tr>
       </thead>
       <tbody>
@@ -260,35 +260,41 @@
           <td><strong>{{ s.customer_name or '—' }}</strong></td>
           <td class="email">{{ s.customer_email }}</td>
           <td>{{ s.product_name or '—' }}</td>
-          <td class="amount">${{ "%.2f"|format(s.amount or 0) }}</td>
-          <td class="date overdue">{{ s.next_payment_date.strftime('%b %d, %Y') if s.next_payment_date else '—' }}</td>
-          <td class="date overdue">{{ s.hours_overdue }}h</td>
+          <td class="amount">{{ "%.2f"|format(s.amount or 0) }} $</td>
+          <td class="date overdue">{{ s.next_payment_date.strftime('%d %b %Y') if s.next_payment_date else '—' }}</td>
+          <td class="date overdue">
+            {% if s.hours_overdue >= 72 %}
+              {{ (s.hours_overdue // 24) }} jour{{ 's' if s.hours_overdue // 24 > 1 else '' }}
+            {% else %}
+              {{ s.hours_overdue }}h
+            {% endif %}
+          </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <div class="empty">No overdue payments right now.</div>
+    <div class="empty">Aucun paiement en retard pour l'instant.</div>
     {% endif %}
   </div>
 
-  <!-- All Subscribers Section -->
+  <!-- Section Tous les abonnés -->
   <div class="section">
     <div class="section-header">
-      <h2>All Subscribers</h2>
-      <span class="badge blue">{{ subscriptions | length }} total</span>
+      <h2>Tous les abonnés</h2>
+      <span class="badge blue">{{ subscriptions | length }} au total</span>
     </div>
     {% if subscriptions %}
     <table>
       <thead>
         <tr>
-          <th>Customer</th>
-          <th>Email</th>
-          <th>Product</th>
-          <th>Amount</th>
-          <th>Status</th>
-          <th>Last Payment</th>
-          <th>Next Due</th>
+          <th>Client</th>
+          <th>Courriel</th>
+          <th>Produit</th>
+          <th>Montant</th>
+          <th>Statut</th>
+          <th>Dernier paiement</th>
+          <th>Prochain paiement</th>
         </tr>
       </thead>
       <tbody>
@@ -297,25 +303,30 @@
           <td><strong>{{ s.customer_name or '—' }}</strong></td>
           <td class="email">{{ s.customer_email }}</td>
           <td>{{ s.product_name or '—' }}</td>
-          <td class="amount">${{ "%.2f"|format(s.amount or 0) }}</td>
+          <td class="amount">{{ "%.2f"|format(s.amount or 0) }} $</td>
           <td>
             <span class="status-pill
               {% if s.payment_state == 'overdue' %}status-overdue
               {% elif s.payment_state == 'due' %}status-active
               {% else %}status-{{ s.status }}{% endif %}">
-              {{ s.payment_state }}
+              {% if s.payment_state == 'overdue' %}En retard
+              {% elif s.payment_state == 'due' %}À payer
+              {% elif s.payment_state == 'paid' %}Actif
+              {% elif s.status == 'cancelled' %}Annulé
+              {% elif s.status == 'expired' %}Expiré
+              {% else %}{{ s.payment_state }}{% endif %}
             </span>
           </td>
-          <td class="date">{{ s.last_payment_date.strftime('%b %d, %Y') if s.last_payment_date else '—' }}</td>
+          <td class="date">{{ s.last_payment_date.strftime('%d %b %Y') if s.last_payment_date else '—' }}</td>
           <td class="date {% if s.payment_state == 'overdue' %}overdue{% endif %}">
-            {{ s.next_payment_date.strftime('%b %d, %Y') if s.next_payment_date else '—' }}
+            {{ s.next_payment_date.strftime('%d %b %Y') if s.next_payment_date else '—' }}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
     {% else %}
-    <div class="empty">No subscribers yet. They will appear here after their first ThriveCart payment.</div>
+    <div class="empty">Aucun abonné pour l'instant. Ils apparaîtront ici après leur premier paiement ThriveCart.</div>
     {% endif %}
   </div>
 

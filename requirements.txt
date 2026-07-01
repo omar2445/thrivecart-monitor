@@ -7,3 +7,5 @@ aiosmtplib==3.0.1
 jinja2==3.1.4
 pydantic==2.7.1
 python-multipart==0.0.9
+httpx==0.27.0
+psycopg2-binary==2.9.9

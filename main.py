@@ -317,7 +317,7 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
     return is_new
 
 
-@app.post("/sync-thrivecart", response_class=HTMLResponse, tags=["Dashboard"])
+@app.api_route("/sync-thrivecart", methods=["GET", "POST"], response_class=HTMLResponse, tags=["Dashboard"])
 async def sync_thrivecart(request: Request, db: Session = Depends(get_db)):
     api_key = os.getenv("THRIVECART_API_KEY", "")
     if not api_key:

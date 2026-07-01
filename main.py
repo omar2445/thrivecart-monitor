@@ -214,36 +214,48 @@ async def import_csv(request: Request, file: UploadFile = File(...), db: Session
 
 
 def _render_dashboard(request: Request, db: Session, message: str = "", message_type: str = "success"):
-    cutoff   = datetime.utcnow() - timedelta(hours=OVERDUE_HOURS)
+    now    = datetime.utcnow()
+    cutoff = now - timedelta(hours=OVERDUE_HOURS)  # 24h ago
     all_subs = db.query(Subscription).order_by(Subscription.updated_at.desc()).all()
 
     for s in all_subs:
-        s.is_overdue = (
-            s.status == "active"
-            and s.next_payment_date is not None
-            and s.next_payment_date <= cutoff
-        )
-        s.days_overdue = (
-            (datetime.utcnow() - s.next_payment_date).days
-            if s.is_overdue and s.next_payment_date else 0
+        due = s.next_payment_date
+        if s.status == "active" and due is not None:
+            if due <= cutoff:
+                s.payment_state = "overdue"   # 24h+ past due
+            elif due <= now:
+                s.payment_state = "due"        # past due but within 24h grace
+            else:
+                s.payment_state = "paid"       # next payment in the future
+        else:
+            s.payment_state = s.status         # failed / cancelled / expired
+
+        s.is_overdue = s.payment_state == "overdue"
+        s.hours_overdue = (
+            int((now - due).total_seconds() / 3600)
+            if s.is_overdue and due else 0
         )
 
-    overdue = [s for s in all_subs if s.is_overdue]
+    overdue = [s for s in all_subs if s.payment_state == "overdue"]
+    due_now = [s for s in all_subs if s.payment_state == "due"]
+
     stats = {
         "total":    len(all_subs),
-        "active":   sum(1 for s in all_subs if s.status == "active" and not s.is_overdue),
+        "active":   sum(1 for s in all_subs if s.payment_state == "paid"),
+        "due":      len(due_now),
         "overdue":  len(overdue),
         "inactive": sum(1 for s in all_subs if s.status in ("cancelled", "expired")),
     }
 
     return templates.TemplateResponse("dashboard.html", {
-        "request":      request,
+        "request":       request,
         "subscriptions": all_subs,
-        "overdue":      overdue,
-        "stats":        stats,
-        "now":          datetime.utcnow().strftime("%b %d, %Y at %H:%M UTC"),
-        "message":      message,
-        "message_type": message_type,
+        "overdue":       overdue,
+        "due_now":       due_now,
+        "stats":         stats,
+        "now":           now.strftime("%b %d, %Y at %H:%M UTC"),
+        "message":       message,
+        "message_type":  message_type,
     })
 
 

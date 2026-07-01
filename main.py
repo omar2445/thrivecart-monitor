@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import hashlib
 import hmac
@@ -355,6 +356,10 @@ async def sync_thrivecart(request: Request, db: Session = Depends(get_db)):
                 if resp.status_code == 404:
                     return _render_dashboard(request, db,
                         "ThriveCart API endpoint not found — check Railway logs for the raw response.", "error")
+                if resp.status_code == 429:
+                    logger.warning("Rate limited by ThriveCart on page %d — waiting 10s", page)
+                    await asyncio.sleep(10)
+                    continue  # retry same page
                 if resp.status_code != 200:
                     return _render_dashboard(request, db,
                         f"ThriveCart API returned {resp.status_code}: {resp.text[:300]}", "error")
@@ -402,6 +407,7 @@ async def sync_thrivecart(request: Request, db: Session = Depends(get_db)):
                 if len(rows) < (page_size or 1):
                     break
                 page += 1
+                await asyncio.sleep(2)  # respect ThriveCart rate limits
 
             except Exception as exc:
                 logger.exception("API sync error on page %d: %s", page, exc)

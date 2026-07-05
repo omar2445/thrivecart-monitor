@@ -196,7 +196,7 @@
       <div class="label">Achats uniques</div>
       <div class="value">{{ stats.one_time }}</div>
     </a>
-    <a class="card green" href="#section-recurring">
+    <a class="card green" href="#section-active">
       <div class="label">Actifs & payés</div>
       <div class="value">{{ stats.active }}</div>
     </a>
@@ -285,6 +285,43 @@
     </table>
     {% else %}
     <div class="empty">Aucun paiement en retard pour l'instant.</div>
+    {% endif %}
+  </div>
+
+  <!-- Section Actifs & payés -->
+  <div class="section" id="section-active">
+    <div class="section-header">
+      <h2>Actifs & payés</h2>
+      <span class="badge green">{{ recurring | selectattr('payment_state', 'equalto', 'paid') | list | length }} actifs</span>
+    </div>
+    {% set active_list = recurring | selectattr('payment_state', 'equalto', 'paid') | list %}
+    {% if active_list %}
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Courriel</th>
+          <th>Produit</th>
+          <th>Montant/mois</th>
+          <th>Dernier paiement</th>
+          <th>Prochain paiement</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in active_list %}
+        <tr>
+          <td><strong>{{ s.customer_name or '—' }}</strong></td>
+          <td class="email">{{ s.customer_email }}</td>
+          <td>{{ s.product_name or '—' }}</td>
+          <td class="amount">{{ "%.2f"|format(s.amount or 0) }} $</td>
+          <td class="date">{{ s.last_payment_date.strftime('%d %b %Y') if s.last_payment_date else '—' }}</td>
+          <td class="date">{{ s.next_payment_date.strftime('%d %b %Y') if s.next_payment_date else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Aucun abonnement actif pour l'instant.</div>
     {% endif %}
   </div>
 

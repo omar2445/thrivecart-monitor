@@ -19,6 +19,8 @@ class Subscription(Base):
     amount = Column(Float, nullable=True)
     # active | failed | cancelled | expired
     status = Column(String, default="active")
+    # recurring | one_time
+    subscription_type = Column(String, default="recurring")
     last_payment_date = Column(DateTime, nullable=True)
     next_payment_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utcnow)

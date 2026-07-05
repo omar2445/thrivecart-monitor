@@ -186,8 +186,16 @@
   <!-- Summary Cards -->
   <div class="cards">
     <div class="card blue">
-      <div class="label">Total abonnés</div>
+      <div class="label">Total clients</div>
       <div class="value">{{ stats.total }}</div>
+    </div>
+    <div class="card blue">
+      <div class="label">Abonnements récurrents</div>
+      <div class="value">{{ stats.recurring }}</div>
+    </div>
+    <div class="card gray">
+      <div class="label">Achats uniques</div>
+      <div class="value">{{ stats.one_time }}</div>
     </div>
     <div class="card green">
       <div class="label">Actifs & payés</div>
@@ -200,10 +208,6 @@
     <div class="card red">
       <div class="label">En retard (24h+)</div>
       <div class="value">{{ stats.overdue }}</div>
-    </div>
-    <div class="card gray">
-      <div class="label">Annulés / Expirés</div>
-      <div class="value">{{ stats.inactive }}</div>
     </div>
   </div>
 
@@ -285,27 +289,27 @@
     {% endif %}
   </div>
 
-  <!-- Section Tous les abonnés -->
+  <!-- Section Abonnements récurrents -->
   <div class="section">
     <div class="section-header">
-      <h2>Tous les abonnés</h2>
-      <span class="badge blue">{{ subscriptions | length }} au total</span>
+      <h2>Abonnements récurrents</h2>
+      <span class="badge blue">{{ recurring | length }} abonnés</span>
     </div>
-    {% if subscriptions %}
+    {% if recurring %}
     <table>
       <thead>
         <tr>
           <th>Client</th>
           <th>Courriel</th>
           <th>Produit</th>
-          <th>Montant</th>
+          <th>Montant/mois</th>
           <th>Statut</th>
           <th>Dernier paiement</th>
           <th>Prochain paiement</th>
         </tr>
       </thead>
       <tbody>
-        {% for s in subscriptions %}
+        {% for s in recurring %}
         <tr {% if s.payment_state == 'overdue' %}class="overdue-row"{% elif s.payment_state == 'due' %}style="background:#fffdf0"{% endif %}>
           <td><strong>{{ s.customer_name or '—' }}</strong></td>
           <td class="email">{{ s.customer_email }}</td>
@@ -333,7 +337,41 @@
       </tbody>
     </table>
     {% else %}
-    <div class="empty">Aucun abonné pour l'instant. Ils apparaîtront ici après leur premier paiement ThriveCart.</div>
+    <div class="empty">Aucun abonnement récurrent pour l'instant.</div>
+    {% endif %}
+  </div>
+
+  <!-- Section Achats uniques -->
+  <div class="section">
+    <div class="section-header">
+      <h2>Achats uniques</h2>
+      <span class="badge" style="background:#f0f0f0;color:#555">{{ one_time | length }} achats</span>
+    </div>
+    {% if one_time %}
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Courriel</th>
+          <th>Produit</th>
+          <th>Montant</th>
+          <th>Date d'achat</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in one_time %}
+        <tr>
+          <td><strong>{{ s.customer_name or '—' }}</strong></td>
+          <td class="email">{{ s.customer_email }}</td>
+          <td>{{ s.product_name or '—' }}</td>
+          <td class="amount">{{ "%.2f"|format(s.amount or 0) }} $</td>
+          <td class="date">{{ s.last_payment_date.strftime('%d %b %Y') if s.last_payment_date else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Aucun achat unique pour l'instant.</div>
     {% endif %}
   </div>
 

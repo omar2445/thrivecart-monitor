@@ -223,42 +223,47 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
     cutoff = now - timedelta(hours=OVERDUE_HOURS)  # 24h ago
     all_subs = db.query(Subscription).order_by(Subscription.updated_at.desc()).all()
 
-    for s in all_subs:
+    recurring  = [s for s in all_subs if (s.subscription_type or "recurring") == "recurring"]
+    one_time   = [s for s in all_subs if (s.subscription_type or "recurring") == "one_time"]
+
+    for s in recurring:
         due = s.next_payment_date
         if s.status == "active" and due is not None:
             if due <= cutoff:
-                s.payment_state = "overdue"   # 24h+ past due
+                s.payment_state = "overdue"
             elif due <= now:
-                s.payment_state = "due"        # past due but within 24h grace
+                s.payment_state = "due"
             else:
-                s.payment_state = "paid"       # next payment in the future
+                s.payment_state = "paid"
         else:
-            s.payment_state = s.status         # failed / cancelled / expired
-
+            s.payment_state = s.status
         s.is_overdue = s.payment_state == "overdue"
         s.hours_overdue = (
             int((now - due).total_seconds() / 3600)
             if s.is_overdue and due else 0
         )
 
-    overdue = [s for s in all_subs if s.payment_state == "overdue"]
-    due_now = [s for s in all_subs if s.payment_state == "due"]
+    overdue = [s for s in recurring if s.payment_state == "overdue"]
+    due_now = [s for s in recurring if s.payment_state == "due"]
 
     stats = {
-        "total":    len(all_subs),
-        "active":   sum(1 for s in all_subs if s.payment_state == "paid"),
-        "due":      len(due_now),
-        "overdue":  len(overdue),
-        "inactive": sum(1 for s in all_subs if s.status in ("cancelled", "expired")),
+        "total":     len(all_subs),
+        "recurring": len(recurring),
+        "one_time":  len(one_time),
+        "active":    sum(1 for s in recurring if s.payment_state == "paid"),
+        "due":       len(due_now),
+        "overdue":   len(overdue),
+        "inactive":  sum(1 for s in all_subs if s.status in ("cancelled", "expired")),
     }
 
     return templates.TemplateResponse("dashboard.html", {
         "request":       request,
-        "subscriptions": all_subs,
+        "recurring":     recurring,
+        "one_time":      one_time,
         "overdue":       overdue,
         "due_now":       due_now,
         "stats":         stats,
-        "now":           now.strftime("%b %d, %Y at %H:%M UTC"),
+        "now":           now.strftime("%d %b %Y à %H:%M UTC"),
         "message":       message,
         "message_type":  message_type,
     })
@@ -307,11 +312,12 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
         or row.get("customer_name", "")
         or row.get("customer", {}).get("name", "")
     )
-    product_name = product.get("name") or row.get("product_name", "")
-    product_id   = str(product.get("id") or row.get("product_id", ""))
+    product_name = product.get("name") or row.get("item_name") or row.get("product_name", "")
+    product_id   = str(product.get("id") or row.get("item_id") or row.get("product_id", ""))
+    raw_sub_id   = row.get("subscription_id") or order.get("subscription_id")
+    sub_type     = "recurring" if raw_sub_id else "one_time"
     sub_id       = str(
-        row.get("subscription_id") or order.get("subscription_id")
-        or row.get("id") or row.get("order_id") or f"api-{email}-{product_id}"
+        raw_sub_id or row.get("order_id") or row.get("id") or f"api-{email}-{product_id}"
     )
     amount_raw = row.get("amount") or order.get("order_total") or row.get("revenue") or 0
     try:
@@ -344,18 +350,21 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
             product_id=product_id,
             amount=amount,
             status=status,
+            subscription_type=sub_type,
             last_payment_date=last_paid,
             next_payment_date=next_due,
         )
         db.add(sub)
-        db.flush()  # write to DB within transaction so duplicates on later pages are found
+        db.flush()
     else:
         if last_paid and (sub.last_payment_date is None or last_paid > sub.last_payment_date):
             sub.last_payment_date = last_paid
-            sub.next_payment_date = next_due
-        sub.customer_name = name or sub.customer_name
-        sub.product_name  = product_name or sub.product_name
-        sub.amount        = max(amount, sub.amount or 0)  # always keep the highest amount seen
+            if sub_type == "recurring":
+                sub.next_payment_date = next_due
+        sub.customer_name      = name or sub.customer_name
+        sub.product_name       = product_name or sub.product_name
+        sub.amount             = max(amount, sub.amount or 0)
+        sub.subscription_type  = sub_type  # upgrade to recurring if a sub_id appears later
     return is_new
 
 

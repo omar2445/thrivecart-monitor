@@ -10,13 +10,17 @@ load_dotenv()
 
 
 def _cfg():
+    # NOTIFY_EMAIL accepts multiple addresses separated by commas
+    raw = os.getenv("NOTIFY_EMAIL", "")
+    recipients = [e.strip() for e in raw.split(",") if e.strip()]
     return {
         "host":         os.getenv("SMTP_HOST", "smtp.gmail.com"),
         "port":         int(os.getenv("SMTP_PORT", "587")),
         "user":         os.getenv("SMTP_USER", ""),
         "password":     os.getenv("SMTP_PASS", ""),
         "from_addr":    os.getenv("SMTP_FROM") or os.getenv("SMTP_USER", ""),
-        "notify_email": os.getenv("NOTIFY_EMAIL", ""),
+        "notify_email": recipients[0] if recipients else "",
+        "recipients":   recipients,
         "notify_name":  os.getenv("NOTIFY_NAME", "Admin"),
         "brevo_key":    os.getenv("BREVO_API_KEY", ""),
     }
@@ -79,7 +83,7 @@ async def _send_via_brevo(subject: str, html: str, cfg: dict):
             headers={"api-key": cfg["brevo_key"], "content-type": "application/json"},
             json={
                 "sender": {"name": "Moniteur ThriveCart", "email": cfg["from_addr"] or cfg["notify_email"]},
-                "to": [{"email": cfg["notify_email"]}],
+                "to": [{"email": addr} for addr in cfg["recipients"]],
                 "subject": subject,
                 "htmlContent": html,
             },
@@ -93,7 +97,7 @@ async def _send_via_smtp(subject: str, html: str, cfg: dict):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = cfg["from_addr"]
-    msg["To"] = cfg["notify_email"]
+    msg["To"] = ", ".join(cfg["recipients"])
     msg.attach(MIMEText(html, "html"))
 
     await aiosmtplib.send(

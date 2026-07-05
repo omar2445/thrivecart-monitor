@@ -304,8 +304,10 @@ async def debug_email():
     smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     smtp_port = os.getenv("SMTP_PORT", "587")
     notify_email = os.getenv("NOTIFY_EMAIL", "")
+    brevo_key = os.getenv("BREVO_API_KEY", "")
 
     config_status = {
+        "BREVO_API_KEY": "SET (hidden)" if brevo_key else "NOT SET",
         "SMTP_HOST":     smtp_host,
         "SMTP_PORT":     smtp_port,
         "SMTP_USER":     smtp_user if smtp_user else "NOT SET",
@@ -313,7 +315,7 @@ async def debug_email():
         "NOTIFY_EMAIL":  notify_email if notify_email else "NOT SET",
     }
 
-    if not smtp_user or not smtp_pass or not notify_email:
+    if not notify_email or (not brevo_key and (not smtp_user or not smtp_pass)):
         return {"config": config_status, "result": "FAILED", "error": "Missing env vars — see config above"}
 
     try:

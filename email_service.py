@@ -1,4 +1,5 @@
 import aiosmtplib
+import httpx
 import os
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -17,10 +18,12 @@ def _cfg():
         "from_addr":    os.getenv("SMTP_FROM") or os.getenv("SMTP_USER", ""),
         "notify_email": os.getenv("NOTIFY_EMAIL", ""),
         "notify_name":  os.getenv("NOTIFY_NAME", "Admin"),
+        "brevo_key":    os.getenv("BREVO_API_KEY", ""),
     }
 
 
-def _build_overdue_email(overdue_list: list[dict], cfg: dict) -> MIMEMultipart:
+def _build_overdue_html(overdue_list: list[dict], cfg: dict) -> tuple[str, str]:
+    """Returns (subject, html)."""
     rows = ""
     for sub in overdue_list:
         due_date = sub["next_payment_date"]
@@ -65,13 +68,43 @@ def _build_overdue_email(overdue_list: list[dict], cfg: dict) -> MIMEMultipart:
       </p>
     </body></html>
     """
+    return subject, html
 
+
+async def _send_via_brevo(subject: str, html: str, cfg: dict):
+    """Send via Brevo HTTP API — works on Railway where SMTP ports are blocked."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={"api-key": cfg["brevo_key"], "content-type": "application/json"},
+            json={
+                "sender": {"name": "Moniteur ThriveCart", "email": cfg["from_addr"] or cfg["notify_email"]},
+                "to": [{"email": cfg["notify_email"]}],
+                "subject": subject,
+                "htmlContent": html,
+            },
+            timeout=30,
+        )
+        if resp.status_code >= 300:
+            raise ValueError(f"Brevo API error {resp.status_code}: {resp.text}")
+
+
+async def _send_via_smtp(subject: str, html: str, cfg: dict):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = cfg["from_addr"]
     msg["To"] = cfg["notify_email"]
     msg.attach(MIMEText(html, "html"))
-    return msg
+
+    await aiosmtplib.send(
+        msg,
+        hostname=cfg["host"],
+        port=cfg["port"],
+        username=cfg["user"],
+        password=cfg["password"],
+        start_tls=True,
+        timeout=30,
+    )
 
 
 async def send_overdue_alert(overdue_list: list[dict]) -> bool:
@@ -82,17 +115,16 @@ async def send_overdue_alert(overdue_list: list[dict]) -> bool:
 
     if not cfg["notify_email"]:
         raise ValueError("NOTIFY_EMAIL n'est pas configuré dans Railway → Variables")
+
+    subject, html = _build_overdue_html(overdue_list, cfg)
+
+    # Brevo HTTP API first (Railway blocks SMTP ports on free plans), SMTP as fallback
+    if cfg["brevo_key"]:
+        await _send_via_brevo(subject, html, cfg)
+        return True
+
     if not cfg["user"] or not cfg["password"]:
-        raise ValueError("SMTP_USER ou SMTP_PASS n'est pas configuré dans Railway → Variables")
+        raise ValueError("Ni BREVO_API_KEY ni SMTP_USER/SMTP_PASS ne sont configurés dans Railway → Variables")
 
-    msg = _build_overdue_email(overdue_list, cfg)
-
-    await aiosmtplib.send(
-        msg,
-        hostname=cfg["host"],
-        port=cfg["port"],
-        username=cfg["user"],
-        password=cfg["password"],
-        start_tls=True,
-    )
+    await _send_via_smtp(subject, html, cfg)
     return True

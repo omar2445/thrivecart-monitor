@@ -101,6 +101,9 @@
     .date.overdue { color: #e53e3e; font-weight: 600; }
 
     .refresh-note { text-align: right; font-size: 12px; color: #aaa; margin-bottom: 24px; }
+    html { scroll-behavior: smooth; }
+    a.card { text-decoration: none; color: inherit; transition: transform .15s, box-shadow .15s; }
+    a.card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.13); cursor: pointer; }
 
     /* Import section */
     .import-box {
@@ -185,34 +188,34 @@
 
   <!-- Summary Cards -->
   <div class="cards">
-    <div class="card blue">
+    <a class="card blue" href="#section-recurring">
       <div class="label">Total clients</div>
       <div class="value">{{ stats.total }}</div>
-    </div>
-    <div class="card blue">
+    </a>
+    <a class="card blue" href="#section-recurring">
       <div class="label">Abonnements récurrents</div>
       <div class="value">{{ stats.recurring }}</div>
-    </div>
-    <div class="card gray">
+    </a>
+    <a class="card gray" href="#section-one-time">
       <div class="label">Achats uniques</div>
       <div class="value">{{ stats.one_time }}</div>
-    </div>
-    <div class="card green">
+    </a>
+    <a class="card green" href="#section-recurring">
       <div class="label">Actifs & payés</div>
       <div class="value">{{ stats.active }}</div>
-    </div>
-    <div class="card" style="border-left:4px solid #d97706">
+    </a>
+    <a class="card" style="border-left:4px solid #d97706" href="#section-due">
       <div class="label">À payer maintenant</div>
       <div class="value" style="color:#d97706">{{ stats.due }}</div>
-    </div>
-    <div class="card red">
+    </a>
+    <a class="card red" href="#section-overdue">
       <div class="label">En retard (24h+)</div>
       <div class="value">{{ stats.overdue }}</div>
-    </div>
+    </a>
   </div>
 
   <!-- Section À payer maintenant -->
-  <div class="section">
+  <div class="section" id="section-due">
     <div class="section-header">
       <h2>À payer maintenant</h2>
       <span class="badge" style="background:#fffbeb;color:#d97706">{{ due_now | length }} en attente</span>
@@ -248,7 +251,7 @@
   </div>
 
   <!-- Section Paiements en retard -->
-  <div class="section">
+  <div class="section" id="section-overdue">
     <div class="section-header">
       <h2>Paiements en retard</h2>
       <span class="badge red">{{ overdue | length }} en retard</span>
@@ -290,7 +293,7 @@
   </div>
 
   <!-- Section Abonnements récurrents -->
-  <div class="section">
+  <div class="section" id="section-recurring">
     <div class="section-header">
       <h2>Abonnements récurrents</h2>
       <span class="badge blue">{{ recurring | length }} abonnés</span>
@@ -342,7 +345,7 @@
   </div>
 
   <!-- Section Achats uniques -->
-  <div class="section">
+  <div class="section" id="section-one-time">
     <div class="section-header">
       <h2>Achats uniques</h2>
       <span class="badge" style="background:#f0f0f0;color:#555">{{ one_time | length }} achats</span>

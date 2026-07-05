@@ -10,10 +10,11 @@ import os
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from email_service import send_overdue_alert
+from email_service import send_overdue_alert, send_unpaid_report
 from models import OverdueNotification, Subscription
 
 logger = logging.getLogger(__name__)
@@ -104,9 +105,67 @@ async def check_overdue_payments():
         db.close()
 
 
+def _find_unpaid(db: Session) -> list[dict]:
+    """All recurring subscriptions whose payment date is past without renewal."""
+    now = datetime.utcnow()
+    from sqlalchemy import or_
+    subs = (
+        db.query(Subscription)
+        .filter(
+            Subscription.subscription_type == "recurring",
+            Subscription.next_payment_date.isnot(None),
+            or_(
+                Subscription.status == "failed",
+                (Subscription.status == "active") & (Subscription.next_payment_date <= now),
+            ),
+        )
+        .order_by(Subscription.next_payment_date)
+        .all()
+    )
+    return [
+        {
+            "customer_name": s.customer_name,
+            "customer_email": s.customer_email,
+            "product_name": s.product_name,
+            "amount": s.amount or 0.0,
+            "next_payment_date": s.next_payment_date,
+        }
+        for s in subs
+    ]
+
+
+async def send_report(period_label: str):
+    """Build and email the unpaid report (weekly = 'hebdomadaire', monthly = 'mensuel')."""
+    logger.info("Sending %s unpaid report...", period_label)
+    db: Session = SessionLocal()
+    try:
+        unpaid = _find_unpaid(db)
+        await send_unpaid_report(unpaid, period_label)
+        logger.info("%s report sent: %d unpaid, total %.2f $",
+                    period_label, len(unpaid), sum(u["amount"] for u in unpaid))
+    except Exception as exc:
+        logger.exception("Error sending %s report: %s", period_label, exc)
+    finally:
+        db.close()
+
+
+async def send_weekly_report():
+    await send_report("hebdomadaire")
+
+
+async def send_monthly_report():
+    await send_report("mensuel")
+
+
 def create_scheduler() -> AsyncIOScheduler:
-    scheduler = AsyncIOScheduler()
-    # Run immediately on startup, then every hour
-    scheduler.add_job(check_overdue_payments, "interval", hours=1, id="overdue_check",
-                      next_run_time=datetime.utcnow())
+    scheduler = AsyncIOScheduler(timezone="UTC")
+    # Weekly report: every Monday at 09:00 UTC
+    scheduler.add_job(send_weekly_report, CronTrigger(day_of_week="mon", hour=9, minute=0),
+                      id="weekly_report")
+    # Monthly report: 1st of each month at 09:00 UTC
+    scheduler.add_job(send_monthly_report, CronTrigger(day=1, hour=9, minute=0),
+                      id="monthly_report")
+    # NOTE: the hourly 24h-overdue alert is disabled for now — it will become
+    # the client-facing reminder email (to be implemented later).
+    # scheduler.add_job(check_overdue_payments, "interval", hours=1, id="overdue_check")
     return scheduler

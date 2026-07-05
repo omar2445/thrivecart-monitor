@@ -296,6 +296,29 @@ async def test_email(request: Request, db: Session = Depends(get_db)):
             f"Échec de l'envoi : {exc}", "error")
 
 
+@app.get("/test-report", tags=["Debug"])
+async def test_report():
+    """Manually trigger the weekly unpaid report email (for testing)."""
+    from scheduler import _find_unpaid
+    from email_service import send_unpaid_report
+    db = SessionLocal()
+    try:
+        unpaid = _find_unpaid(db)
+        await send_unpaid_report(unpaid, "hebdomadaire (test)")
+        total = sum(u["amount"] for u in unpaid)
+        return {
+            "result": "SUCCESS",
+            "unpaid_count": len(unpaid),
+            "total_unpaid": f"{total:.2f} $",
+            "sent_to": os.getenv("NOTIFY_EMAIL", ""),
+        }
+    except Exception as exc:
+        logger.exception("test_report failed: %s", exc)
+        return {"result": "FAILED", "error": str(exc)}
+    finally:
+        db.close()
+
+
 @app.get("/debug-email", tags=["Debug"])
 async def debug_email():
     """Returns env var status and attempts to send a test email. Visit this URL directly."""

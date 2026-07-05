@@ -107,6 +107,88 @@ async def _send_via_smtp(subject: str, html: str, cfg: dict):
     )
 
 
+def _build_report_html(unpaid_list: list[dict], period_label: str, cfg: dict) -> tuple[str, str]:
+    """Returns (subject, html) for the weekly/monthly unpaid report."""
+    count = len(unpaid_list)
+    total = sum(s["amount"] or 0.0 for s in unpaid_list)
+
+    subject = f"[ThriveCart] Rapport {period_label} — {count} client{'s' if count != 1 else ''} impayé{'s' if count != 1 else ''} — {total:.2f} $"
+
+    if count == 0:
+        body = "<p style='color:#276749;font-size:16px'><strong>&#10004; Tous les clients ont payé. Aucun impayé à signaler.</strong></p>"
+    else:
+        rows = ""
+        for sub in unpaid_list:
+            due_date = sub["next_payment_date"]
+            due_str = due_date.strftime("%d/%m/%Y") if isinstance(due_date, datetime) else str(due_date)
+            rows += f"""
+            <tr>
+              <td style="padding:8px;border:1px solid #ddd">{sub["customer_name"]}</td>
+              <td style="padding:8px;border:1px solid #ddd">{sub["customer_email"]}</td>
+              <td style="padding:8px;border:1px solid #ddd">{sub["product_name"]}</td>
+              <td style="padding:8px;border:1px solid #ddd;text-align:right">{(sub["amount"] or 0.0):.2f} $</td>
+              <td style="padding:8px;border:1px solid #ddd;color:#c0392b">{due_str}</td>
+            </tr>"""
+
+        body = f"""
+        <p><strong>{count} client{'s' if count != 1 else ''}</strong> n'{'ont' if count != 1 else 'a'} pas payé leur abonnement.</p>
+        <table style="border-collapse:collapse;width:100%;font-size:14px">
+          <thead>
+            <tr style="background:#f2f2f2">
+              <th style="padding:8px;border:1px solid #ddd;text-align:left">Nom</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left">Email</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left">Produit</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:right">Montant</th>
+              <th style="padding:8px;border:1px solid #ddd;text-align:left">Échéance</th>
+            </tr>
+          </thead>
+          <tbody>{rows}</tbody>
+          <tfoot>
+            <tr style="background:#fff5f5;font-weight:bold">
+              <td colspan="3" style="padding:10px 8px;border:1px solid #ddd">TOTAL IMPAYÉ</td>
+              <td style="padding:10px 8px;border:1px solid #ddd;text-align:right;color:#c0392b">{total:.2f} $</td>
+              <td style="border:1px solid #ddd"></td>
+            </tr>
+          </tfoot>
+        </table>"""
+
+    html = f"""
+    <html><body style="font-family:Arial,sans-serif;color:#333">
+      <h2 style="color:#1a1a2e">&#128202; Rapport {period_label} des paiements</h2>
+      <p>Bonjour {cfg['notify_name']},</p>
+      {body}
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+      <p style="font-size:12px;color:#999">
+        Rapport envoyé automatiquement par votre moniteur ThriveCart.
+        Envoyé le {datetime.utcnow().strftime('%d/%m/%Y %H:%M UTC')}.
+      </p>
+    </body></html>
+    """
+    return subject, html
+
+
+async def _dispatch(subject: str, html: str, cfg: dict):
+    """Send using Brevo HTTP API if configured, else SMTP."""
+    if cfg["brevo_key"]:
+        await _send_via_brevo(subject, html, cfg)
+        return
+    if not cfg["user"] or not cfg["password"]:
+        raise ValueError("Ni BREVO_API_KEY ni SMTP_USER/SMTP_PASS ne sont configurés dans Railway → Variables")
+    await _send_via_smtp(subject, html, cfg)
+
+
+async def send_unpaid_report(unpaid_list: list[dict], period_label: str) -> bool:
+    """Weekly/monthly report: who didn't pay, each amount, total unpaid.
+    Sends even when the list is empty (report says everyone paid)."""
+    cfg = _cfg()
+    if not cfg["notify_email"]:
+        raise ValueError("NOTIFY_EMAIL n'est pas configuré dans Railway → Variables")
+
+    subject, html = _build_report_html(unpaid_list, period_label, cfg)
+    await _dispatch(subject, html, cfg)
+    return True
+
+
 async def send_overdue_alert(overdue_list: list[dict]) -> bool:
     if not overdue_list:
         return True
@@ -117,14 +199,5 @@ async def send_overdue_alert(overdue_list: list[dict]) -> bool:
         raise ValueError("NOTIFY_EMAIL n'est pas configuré dans Railway → Variables")
 
     subject, html = _build_overdue_html(overdue_list, cfg)
-
-    # Brevo HTTP API first (Railway blocks SMTP ports on free plans), SMTP as fallback
-    if cfg["brevo_key"]:
-        await _send_via_brevo(subject, html, cfg)
-        return True
-
-    if not cfg["user"] or not cfg["password"]:
-        raise ValueError("Ni BREVO_API_KEY ni SMTP_USER/SMTP_PASS ne sont configurés dans Railway → Variables")
-
-    await _send_via_smtp(subject, html, cfg)
+    await _dispatch(subject, html, cfg)
     return True

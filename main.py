@@ -296,6 +296,40 @@ async def test_email(request: Request, db: Session = Depends(get_db)):
             f"Échec de l'envoi : {exc}", "error")
 
 
+@app.get("/debug-email", tags=["Debug"])
+async def debug_email():
+    """Returns env var status and attempts to send a test email. Visit this URL directly."""
+    smtp_user = os.getenv("SMTP_USER", "")
+    smtp_pass = os.getenv("SMTP_PASS", "")
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = os.getenv("SMTP_PORT", "587")
+    notify_email = os.getenv("NOTIFY_EMAIL", "")
+
+    config_status = {
+        "SMTP_HOST":     smtp_host,
+        "SMTP_PORT":     smtp_port,
+        "SMTP_USER":     smtp_user if smtp_user else "NOT SET",
+        "SMTP_PASS":     "SET (hidden)" if smtp_pass else "NOT SET",
+        "NOTIFY_EMAIL":  notify_email if notify_email else "NOT SET",
+    }
+
+    if not smtp_user or not smtp_pass or not notify_email:
+        return {"config": config_status, "result": "FAILED", "error": "Missing env vars — see config above"}
+
+    try:
+        await send_overdue_alert([{
+            "customer_name": "Test debug",
+            "customer_email": "test@example.com",
+            "product_name":  "Debug test",
+            "amount":        0.0,
+            "next_payment_date": datetime.utcnow(),
+        }])
+        return {"config": config_status, "result": "SUCCESS", "sent_to": notify_email}
+    except Exception as exc:
+        logger.exception("debug_email failed: %s", exc)
+        return {"config": config_status, "result": "FAILED", "error": str(exc)}
+
+
 def _upsert_from_api_row(db: Session, row: dict) -> bool:
     """Save one transaction row from ThriveCart API into the DB. Returns True if new."""
     customer = row.get("customer", {})

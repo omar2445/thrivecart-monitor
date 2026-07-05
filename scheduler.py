@@ -112,7 +112,10 @@ def _find_unpaid(db: Session) -> list[dict]:
     subs = (
         db.query(Subscription)
         .filter(
-            Subscription.subscription_type == "recurring",
+            or_(
+                Subscription.subscription_type == "recurring",
+                Subscription.subscription_type.is_(None),
+            ),
             Subscription.next_payment_date.isnot(None),
             or_(
                 Subscription.status == "failed",

@@ -105,11 +105,12 @@ async def check_overdue_payments():
         db.close()
 
 
-def _find_unpaid(db: Session) -> list[dict]:
-    """All recurring subscriptions whose payment date is past without renewal."""
+def _find_unpaid(db: Session, since: datetime | None = None, until: datetime | None = None) -> list[dict]:
+    """Recurring subscriptions whose payment date is past without renewal.
+    Optional since/until restrict to due dates within that window."""
     now = datetime.utcnow()
     from sqlalchemy import or_
-    subs = (
+    query = (
         db.query(Subscription)
         .filter(
             or_(
@@ -122,9 +123,12 @@ def _find_unpaid(db: Session) -> list[dict]:
                 (Subscription.status == "active") & (Subscription.next_payment_date <= now),
             ),
         )
-        .order_by(Subscription.next_payment_date)
-        .all()
     )
+    if since is not None:
+        query = query.filter(Subscription.next_payment_date >= since)
+    if until is not None:
+        query = query.filter(Subscription.next_payment_date < until)
+    subs = query.order_by(Subscription.next_payment_date).all()
     return [
         {
             "customer_name": s.customer_name,
@@ -137,12 +141,16 @@ def _find_unpaid(db: Session) -> list[dict]:
     ]
 
 
-async def send_report(period_label: str):
-    """Build and email the unpaid report (weekly = 'hebdomadaire', monthly = 'mensuel')."""
+MONTHS_FR = ["janvier", "février", "mars", "avril", "mai", "juin",
+             "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+
+
+async def send_report(period_label: str, since: datetime | None = None, until: datetime | None = None):
+    """Build and email the unpaid report for the given due-date window."""
     logger.info("Sending %s unpaid report...", period_label)
     db: Session = SessionLocal()
     try:
-        unpaid = _find_unpaid(db)
+        unpaid = _find_unpaid(db, since=since, until=until)
         await send_unpaid_report(unpaid, period_label)
         logger.info("%s report sent: %d unpaid, total %.2f $",
                     period_label, len(unpaid), sum(u["amount"] for u in unpaid))
@@ -153,11 +161,21 @@ async def send_report(period_label: str):
 
 
 async def send_weekly_report():
-    await send_report("hebdomadaire")
+    """Clients whose payment was due in the last 7 days and who didn't pay."""
+    now = datetime.utcnow()
+    since = now - timedelta(days=7)
+    label = f"hebdomadaire (du {since.strftime('%d/%m')} au {now.strftime('%d/%m/%Y')})"
+    await send_report(label, since=since, until=now)
 
 
 async def send_monthly_report():
-    await send_report("mensuel")
+    """Clients whose payment was due during the previous calendar month and who didn't pay."""
+    now = datetime.utcnow()
+    first_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_month_end = first_this_month
+    last_month_start = (first_this_month - timedelta(days=1)).replace(day=1)
+    label = f"mensuel — {MONTHS_FR[last_month_start.month - 1]} {last_month_start.year}"
+    await send_report(label, since=last_month_start, until=last_month_end)
 
 
 def create_scheduler() -> AsyncIOScheduler:

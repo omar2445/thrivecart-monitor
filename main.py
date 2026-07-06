@@ -346,17 +346,24 @@ async def test_all_emails():
     results = {}
     db = SessionLocal()
     try:
+        now = datetime.utcnow()
         unpaid = _find_unpaid(db)
 
         try:
-            await send_unpaid_report(unpaid, "hebdomadaire")
-            results["rapport_hebdomadaire"] = "SENT"
+            week_since = now - timedelta(days=7)
+            weekly = _find_unpaid(db, since=week_since, until=now)
+            label = f"hebdomadaire (du {week_since.strftime('%d/%m')} au {now.strftime('%d/%m/%Y')})"
+            await send_unpaid_report(weekly, label)
+            results["rapport_hebdomadaire"] = f"SENT ({len(weekly)} impayés cette semaine)"
         except Exception as exc:
             results["rapport_hebdomadaire"] = f"FAILED: {exc}"
 
         try:
-            await send_unpaid_report(unpaid, "mensuel — juin 2026")
-            results["rapport_mensuel_juin"] = "SENT"
+            june_start = datetime(2026, 6, 1)
+            june_end = datetime(2026, 7, 1)
+            june = _find_unpaid(db, since=june_start, until=june_end)
+            await send_unpaid_report(june, "mensuel — juin 2026")
+            results["rapport_mensuel_juin"] = f"SENT ({len(june)} impayés en juin)"
         except Exception as exc:
             results["rapport_mensuel_juin"] = f"FAILED: {exc}"
 

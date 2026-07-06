@@ -203,6 +203,56 @@ async def send_unpaid_report(unpaid_list: list[dict], period_label: str) -> bool
     return True
 
 
+def _build_client_reminder_html(client: dict) -> tuple[str, str]:
+    """Reminder sent TO the client whose payment is 24h+ overdue."""
+    due = client["next_payment_date"]
+    due_str = due.strftime("%d/%m/%Y") if isinstance(due, datetime) else str(due)
+    amount = client.get("amount") or 0.0
+    product = client.get("product_name") or "votre abonnement"
+    name = client.get("customer_name") or ""
+
+    subject = f"Rappel : votre paiement pour {product} est en attente"
+
+    html = f"""
+    <html><body style="font-family:Arial,sans-serif;color:#333;max-width:600px;margin:0 auto">
+      <h2 style="color:#1a1a2e">Rappel de paiement</h2>
+      <p>Bonjour {name},</p>
+      <p>Nous n'avons pas encore reçu le paiement de votre abonnement
+         <strong>{product}</strong> d'un montant de <strong>{amount:.2f} $</strong>,
+         qui était dû le <strong>{due_str}</strong>.</p>
+      <p>Il est possible que votre carte ait expiré ou que le paiement ait été refusé.
+         Merci de vérifier votre moyen de paiement afin d'éviter toute interruption
+         de votre abonnement.</p>
+      <p style="margin-top:24px">Si vous avez déjà effectué le paiement, veuillez ignorer ce message.</p>
+      <p>Merci de votre confiance,<br>L'équipe</p>
+      <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+      <p style="font-size:12px;color:#999">
+        Ce rappel a été envoyé automatiquement car votre paiement présente plus de 24&nbsp;heures de retard.
+      </p>
+    </body></html>
+    """
+    return subject, html
+
+
+async def send_client_reminder(client: dict, recipient_override: str = "") -> bool:
+    """Send the 24h-overdue reminder to the client.
+    recipient_override redirects delivery (used for testing/demo)."""
+    cfg = _cfg()
+    subject, html = _build_client_reminder_html(client)
+
+    to_addr = recipient_override or client.get("customer_email", "")
+    if not to_addr:
+        raise ValueError("Aucune adresse destinataire pour le rappel client")
+
+    if recipient_override:
+        subject = f"[DÉMO client] {subject}"
+
+    demo_cfg = dict(cfg)
+    demo_cfg["recipients"] = [e.strip() for e in to_addr.split(",") if e.strip()]
+    await _dispatch(subject, html, demo_cfg)
+    return True
+
+
 async def send_overdue_alert(overdue_list: list[dict]) -> bool:
     if not overdue_list:
         return True

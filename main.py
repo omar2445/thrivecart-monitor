@@ -336,6 +336,59 @@ async def report_pdf():
         db.close()
 
 
+@app.get("/test-all-emails", tags=["Debug"])
+async def test_all_emails():
+    """Showcase: sends the weekly report, the June monthly report, and a demo
+    of the client 24h-overdue reminder — all delivered to NOTIFY_EMAIL."""
+    from scheduler import _find_unpaid
+    from email_service import send_unpaid_report, send_client_reminder
+    notify = os.getenv("NOTIFY_EMAIL", "")
+    results = {}
+    db = SessionLocal()
+    try:
+        unpaid = _find_unpaid(db)
+
+        try:
+            await send_unpaid_report(unpaid, "hebdomadaire")
+            results["rapport_hebdomadaire"] = "SENT"
+        except Exception as exc:
+            results["rapport_hebdomadaire"] = f"FAILED: {exc}"
+
+        try:
+            await send_unpaid_report(unpaid, "mensuel — juin 2026")
+            results["rapport_mensuel_juin"] = "SENT"
+        except Exception as exc:
+            results["rapport_mensuel_juin"] = f"FAILED: {exc}"
+
+        try:
+            sample = (
+                {
+                    "customer_name": unpaid[0]["customer_name"],
+                    "customer_email": unpaid[0]["customer_email"],
+                    "product_name": unpaid[0]["product_name"],
+                    "amount": unpaid[0]["amount"],
+                    "next_payment_date": unpaid[0]["next_payment_date"],
+                }
+                if unpaid
+                else {
+                    "customer_name": "Jean Dupont",
+                    "customer_email": "client@example.com",
+                    "product_name": "Abonnement mensuel",
+                    "amount": 99.0,
+                    "next_payment_date": datetime.utcnow() - timedelta(hours=30),
+                }
+            )
+            # Demo: delivered to NOTIFY_EMAIL, NOT to the real client
+            await send_client_reminder(sample, recipient_override=notify)
+            results["rappel_client_24h"] = "SENT (démo, livré à vous — pas au client)"
+        except Exception as exc:
+            results["rappel_client_24h"] = f"FAILED: {exc}"
+
+        return {"sent_to": notify, "unpaid_count": len(unpaid), "results": results}
+    finally:
+        db.close()
+
+
 @app.get("/test-report", tags=["Debug"])
 async def test_report():
     """Manually trigger the weekly unpaid report email (for testing)."""

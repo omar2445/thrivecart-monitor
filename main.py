@@ -305,7 +305,7 @@ async def report_pdf():
     db = SessionLocal()
     try:
         unpaid = _find_unpaid(db)
-        pdf_bytes = build_unpaid_pdf(unpaid, "des impayés")
+        pdf_bytes = build_unpaid_pdf(unpaid, "")
         filename = f"rapport-impayes-{datetime.utcnow().strftime('%Y-%m-%d')}.pdf"
         return Response(
             content=pdf_bytes,

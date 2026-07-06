@@ -17,7 +17,10 @@ def build_unpaid_pdf(unpaid_list: list[dict], period_label: str) -> bytes:
     # Title
     pdf.set_font("Helvetica", "B", 16)
     pdf.set_text_color(26, 26, 46)
-    pdf.cell(0, 10, _txt(f"Rapport {period_label} des paiements impayés"), ln=True)
+    title = "Rapport des paiements impayés"
+    if period_label:
+        title += f" ({period_label})"
+    pdf.cell(0, 10, _txt(title), ln=True)
 
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(120, 120, 120)
@@ -36,7 +39,7 @@ def build_unpaid_pdf(unpaid_list: list[dict], period_label: str) -> bytes:
     # Summary line
     pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(192, 57, 43)
-    pdf.cell(0, 8, _txt(f"{count} client(s) impayé(s) — Total : {total:.2f} $"), ln=True)
+    pdf.cell(0, 8, _txt(f"{count} client(s) impayé(s) - Total : {total:.2f} $"), ln=True)
     pdf.ln(3)
 
     # Table header

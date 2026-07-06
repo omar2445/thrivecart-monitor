@@ -296,6 +296,26 @@ async def test_email(request: Request, db: Session = Depends(get_db)):
             f"Échec de l'envoi : {exc}", "error")
 
 
+@app.get("/debug-db", tags=["Debug"])
+async def debug_db():
+    """Shows which database is in use and row counts."""
+    from database import DATABASE_URL
+    from scheduler import _find_unpaid
+    db = SessionLocal()
+    try:
+        total = db.query(Subscription).count()
+        unpaid = _find_unpaid(db)
+        db_kind = "PostgreSQL (persistent)" if DATABASE_URL.startswith("postgresql") else "SQLite (EPHEMERAL — data lost on each redeploy!)"
+        return {
+            "database": db_kind,
+            "total_subscriptions": total,
+            "unpaid_count": len(unpaid),
+            "total_unpaid": f"{sum(u['amount'] for u in unpaid):.2f} $",
+        }
+    finally:
+        db.close()
+
+
 @app.get("/report.pdf", tags=["Dashboard"])
 async def report_pdf():
     """Download the current unpaid report as a PDF."""

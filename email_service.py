@@ -156,11 +156,21 @@ def _build_report_html(unpaid_list: list[dict], period_label: str, cfg: dict) ->
           </tfoot>
         </table>"""
 
+    app_url = os.getenv("APP_URL", "https://web-production-8527a.up.railway.app").rstrip("/")
+
     html = f"""
     <html><body style="font-family:Arial,sans-serif;color:#333">
       <h2 style="color:#1a1a2e">&#128202; Rapport {period_label} des paiements</h2>
       <p>Bonjour {cfg['notify_name']},</p>
       {body}
+      <p style="margin-top:28px;text-align:center">
+        <a href="{app_url}/report.pdf"
+           style="background:#1a1a2e;color:#ffffff;text-decoration:none;
+                  padding:12px 28px;border-radius:8px;font-size:14px;font-weight:bold;
+                  display:inline-block">
+          &#128196; Télécharger le rapport en PDF
+        </a>
+      </p>
       <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
       <p style="font-size:12px;color:#999">
         Rapport envoyé automatiquement par votre moniteur ThriveCart.

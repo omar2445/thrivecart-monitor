@@ -296,6 +296,26 @@ async def test_email(request: Request, db: Session = Depends(get_db)):
             f"Échec de l'envoi : {exc}", "error")
 
 
+@app.get("/report.pdf", tags=["Dashboard"])
+async def report_pdf():
+    """Download the current unpaid report as a PDF."""
+    from scheduler import _find_unpaid
+    from pdf_service import build_unpaid_pdf
+    from fastapi.responses import Response
+    db = SessionLocal()
+    try:
+        unpaid = _find_unpaid(db)
+        pdf_bytes = build_unpaid_pdf(unpaid, "des impayés")
+        filename = f"rapport-impayes-{datetime.utcnow().strftime('%Y-%m-%d')}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    finally:
+        db.close()
+
+
 @app.get("/test-report", tags=["Debug"])
 async def test_report():
     """Manually trigger the weekly unpaid report email (for testing)."""

@@ -228,13 +228,20 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
 
     for s in recurring:
         due = s.next_payment_date
-        if s.status == "active" and due is not None:
+        if s.status in ("active", "failed") and due is not None:
             if due <= cutoff:
                 s.payment_state = "overdue"
             elif due <= now:
                 s.payment_state = "due"
+            elif s.status == "failed":
+                # ThriveCart reported a failed payment even though the due date
+                # hasn't passed yet — they still owe money now
+                s.payment_state = "due"
             else:
                 s.payment_state = "paid"
+        elif s.status == "failed":
+            # Failed payment with no due date recorded: definitely unpaid
+            s.payment_state = "overdue"
         else:
             s.payment_state = s.status
         s.is_overdue = s.payment_state == "overdue"
@@ -294,6 +301,48 @@ async def test_email(request: Request, db: Session = Depends(get_db)):
         logger.exception("Test email failed: %s", exc)
         return _render_dashboard(request, db,
             f"Échec de l'envoi : {exc}", "error")
+
+
+@app.get("/debug-client", tags=["Debug"])
+async def debug_client(q: str = ""):
+    """Look up a client by (partial) email or name to see their stored state.
+    Usage: /debug-client?q=jean"""
+    if not q or len(q) < 3:
+        return {"error": "Ajoutez ?q=<email ou nom> (3 caractères minimum)"}
+    db = SessionLocal()
+    try:
+        pattern = f"%{q}%"
+        rows = (
+            db.query(Subscription)
+            .filter(
+                (Subscription.customer_email.ilike(pattern))
+                | (Subscription.customer_name.ilike(pattern))
+            )
+            .limit(20)
+            .all()
+        )
+        if not rows:
+            return {"query": q, "found": 0,
+                    "note": "Personne trouvée — ce client n'a pas été importé (transaction hors de la fenêtre de sync ?)"}
+        return {
+            "query": q,
+            "found": len(rows),
+            "clients": [
+                {
+                    "name": r.customer_name,
+                    "email": r.customer_email,
+                    "product": r.product_name,
+                    "amount": r.amount,
+                    "status": r.status,
+                    "type": r.subscription_type,
+                    "last_payment": str(r.last_payment_date),
+                    "next_payment": str(r.next_payment_date),
+                }
+                for r in rows
+            ],
+        }
+    finally:
+        db.close()
 
 
 @app.get("/debug-db", tags=["Debug"])

@@ -109,6 +109,7 @@ def _find_unpaid(db: Session, since: datetime | None = None, until: datetime | N
     """Recurring subscriptions whose payment date is past without renewal.
     Optional since/until restrict to due dates within that window."""
     now = datetime.utcnow()
+    cancel_grace = now - timedelta(days=int(os.getenv("CANCELLED_GRACE_DAYS", "90")))
     from sqlalchemy import or_
     query = (
         db.query(Subscription)
@@ -121,6 +122,10 @@ def _find_unpaid(db: Session, since: datetime | None = None, until: datetime | N
             or_(
                 Subscription.status == "failed",
                 (Subscription.status == "active") & (Subscription.next_payment_date <= now),
+                # Cancelled after declines: still owes the missed payment
+                (Subscription.status == "cancelled")
+                & (Subscription.next_payment_date <= now)
+                & (Subscription.next_payment_date >= cancel_grace),
             ),
         )
     )

@@ -226,9 +226,16 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
     recurring  = [s for s in all_subs if (s.subscription_type or "recurring") == "recurring"]
     one_time   = [s for s in all_subs if (s.subscription_type or "recurring") == "one_time"]
 
+    # Cancelled subs (often auto-cancelled after card declines) still owe their
+    # missed payment — chase them if the due date passed within this window
+    cancel_grace = now - timedelta(days=int(os.getenv("CANCELLED_GRACE_DAYS", "90")))
+
     for s in recurring:
         due = s.next_payment_date
-        if s.status in ("active", "failed") and due is not None:
+        chase_cancelled = (
+            s.status == "cancelled" and due is not None and cancel_grace <= due <= now
+        )
+        if (s.status in ("active", "failed") and due is not None) or chase_cancelled:
             if due <= cutoff:
                 s.payment_state = "overdue"
             elif due <= now:
@@ -620,8 +627,21 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
 
     next_due = (last_paid + timedelta(days=30)) if last_paid else None
 
-    status_raw = (row.get("status") or "").lower()
-    status = "cancelled" if status_raw in ("cancelled", "canceled", "refunded") else "active"
+    # transaction_type tells what happened: rebill/purchase = money moved,
+    # cancel/refund = NO payment. Declined rebills never appear in the API.
+    tx_type = str(row.get("transaction_type") or "").lower()
+    is_payment = amount > 0 and tx_type not in ("cancel", "cancellation", "refund", "rebill_failed", "failed")
+
+    # subscription_current_status is the authoritative CURRENT state
+    sub_status_raw = str(row.get("subscription_current_status") or row.get("status") or "").lower()
+    if sub_status_raw in ("cancelled", "canceled", "refunded"):
+        status = "cancelled"
+    elif sub_status_raw in ("completed", "complete", "expired", "finished"):
+        status = "expired"
+    elif sub_status_raw in ("past_due", "pastdue", "failed", "delinquent"):
+        status = "failed"
+    else:
+        status = "active"
 
     sub = db.query(Subscription).filter_by(thrivecart_subscription_id=sub_id).first()
     is_new = sub is None
@@ -635,16 +655,22 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
             amount=amount,
             status=status,
             subscription_type=sub_type,
-            last_payment_date=last_paid,
-            next_payment_date=next_due,
+            last_payment_date=last_paid if is_payment else None,
+            next_payment_date=next_due if is_payment else None,
         )
         db.add(sub)
         db.flush()
     else:
-        if last_paid and (sub.last_payment_date is None or last_paid > sub.last_payment_date):
+        if not is_payment and last_paid and sub.last_payment_date == last_paid:
+            # Repair: an earlier sync wrongly recorded this cancel/refund
+            # transaction as a payment — undo so real payments can refill
+            sub.last_payment_date = None
+            sub.next_payment_date = None
+        if is_payment and last_paid and (sub.last_payment_date is None or last_paid > sub.last_payment_date):
             sub.last_payment_date = last_paid
             if sub_type == "recurring":
                 sub.next_payment_date = next_due
+        sub.status             = status
         sub.customer_name      = name or sub.customer_name
         sub.product_name       = product_name or sub.product_name
         sub.amount             = max(amount, sub.amount or 0)

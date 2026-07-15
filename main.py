@@ -441,11 +441,34 @@ async def debug_db():
         total = db.query(Subscription).count()
         unpaid = _find_unpaid(db)
         db_kind = "PostgreSQL (persistent)" if DATABASE_URL.startswith("postgresql") else "SQLite (EPHEMERAL — data lost on each redeploy!)"
+
+        now = datetime.utcnow()
+        stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "120")))
+        recurring = [
+            s for s in db.query(Subscription).all()
+            if (s.subscription_type or "recurring") == "recurring"
+        ]
+        buckets: dict = {}
+        for s in recurring:
+            due = s.next_payment_date
+            if s.status != "active":
+                key = f"status_{s.status}"
+            elif due is None:
+                key = "active_no_due_date"
+            elif due > now:
+                key = "active_paid_future_due"
+            elif due >= stale_cutoff:
+                key = "active_overdue_within_120d"
+            else:
+                key = "active_stale_older_120d"
+            buckets[key] = buckets.get(key, 0) + 1
+
         return {
             "database": db_kind,
             "total_subscriptions": total,
             "unpaid_count": len(unpaid),
             "total_unpaid": f"{sum(u['amount'] for u in unpaid):.2f} $",
+            "recurring_breakdown": dict(sorted(buckets.items())),
         }
     finally:
         db.close()

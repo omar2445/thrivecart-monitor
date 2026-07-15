@@ -431,6 +431,85 @@ async def debug_events(q: str = "", limit: int = 30):
         db.close()
 
 
+_substatus_result: dict = {"state": "idle"}
+
+
+async def _run_substatus_scan():
+    """Scan ALL ThriveCart transactions and tally subscriptions by their
+    current status as reported by ThriveCart — ground truth comparison."""
+    global _substatus_result
+    api_key = os.getenv("THRIVECART_API_KEY", "")
+    sub_status: dict = {}   # subscription_id -> current status (newest row wins)
+    one_time_rows = 0
+    page = 0
+    page_size = None
+    oldest = newest = None
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            while page < 200:
+                resp = await client.get(
+                    "https://thrivecart.com/api/external/transactions",
+                    headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+                    params={"page": page + 1, "limit": 100, "per_page": 100},
+                )
+                page += 1
+                if resp.status_code == 429:
+                    await asyncio.sleep(15)
+                    page -= 1
+                    continue
+                if resp.status_code != 200:
+                    break
+                rows = resp.json().get("transactions") or resp.json().get("data") or []
+                if not rows:
+                    break
+                if page_size is None:
+                    page_size = len(rows)
+                for row in rows:
+                    ts = row.get("timestamp")
+                    if ts:
+                        d = datetime.utcfromtimestamp(ts)
+                        oldest = d if oldest is None or d < oldest else oldest
+                        newest = d if newest is None or d > newest else newest
+                    sid = row.get("subscription_id")
+                    if not sid:
+                        one_time_rows += 1
+                        continue
+                    st = str(row.get("subscription_current_status") or "unknown").lower()
+                    sub_status.setdefault(str(sid), st)  # newest-first: first wins
+                _substatus_result = {"state": f"running (page {page})"}
+                if len(rows) < (page_size or 1):
+                    break
+                await asyncio.sleep(2)
+
+        tally: dict = {}
+        for st in sub_status.values():
+            tally[st] = tally.get(st, 0) + 1
+        _substatus_result = {
+            "state": "done",
+            "pages_scanned": page,
+            "date_range": f"{oldest} → {newest}",
+            "distinct_subscriptions": len(sub_status),
+            "by_thrivecart_status": dict(sorted(tally.items())),
+            "one_time_transaction_rows": one_time_rows,
+        }
+    except Exception as exc:
+        logger.exception("substatus scan failed: %s", exc)
+        _substatus_result = {"state": "error", "error": str(exc)}
+
+
+@app.get("/debug-substatus", tags=["Debug"])
+async def debug_substatus(restart: int = 0):
+    """Full-history tally of subscriptions by ThriveCart's own status.
+    First call starts the scan; refresh to see progress/result."""
+    global _substatus_result
+    state = _substatus_result.get("state", "idle")
+    if state == "idle" or (restart and not str(state).startswith("running")):
+        _substatus_result = {"state": "running (starting)"}
+        asyncio.get_event_loop().create_task(_run_substatus_scan())
+        return {"state": "started — refresh this page in a minute"}
+    return _substatus_result
+
+
 @app.get("/debug-db", tags=["Debug"])
 async def debug_db():
     """Shows which database is in use and row counts."""

@@ -226,16 +226,17 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
     recurring  = [s for s in all_subs if (s.subscription_type or "recurring") == "recurring"]
     one_time   = [s for s in all_subs if (s.subscription_type or "recurring") == "one_time"]
 
-    # Cancelled subs (often auto-cancelled after card declines) still owe their
-    # missed payment — chase them if the due date passed within this window
-    cancel_grace = now - timedelta(days=int(os.getenv("CANCELLED_GRACE_DAYS", "120")))
+    # Only chase unpaid whose due date passed within this window — older
+    # missed payments are stale history, not active monitoring targets
+    stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "120")))
 
     for s in recurring:
         due = s.next_payment_date
-        chase_cancelled = (
-            s.status == "cancelled" and due is not None and cancel_grace <= due <= now
+        trackable = due is not None and (
+            s.status in ("active", "failed")
+            or (s.status == "cancelled" and due <= now)
         )
-        if (s.status in ("active", "failed") and due is not None) or chase_cancelled:
+        if trackable and due >= stale_cutoff:
             if due <= cutoff:
                 s.payment_state = "overdue"
             elif due <= now:
@@ -246,9 +247,9 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
                 s.payment_state = "due"
             else:
                 s.payment_state = "paid"
-        elif s.status == "failed":
-            # Failed payment with no due date recorded: definitely unpaid
-            s.payment_state = "overdue"
+        elif trackable:
+            # unpaid, but the missed payment is older than the window
+            s.payment_state = "stale"
         else:
             s.payment_state = s.status
         s.is_overdue = s.payment_state == "overdue"

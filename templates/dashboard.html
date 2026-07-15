@@ -364,10 +364,12 @@
             <span class="status-pill
               {% if s.payment_state == 'overdue' %}status-overdue
               {% elif s.payment_state == 'due' %}status-active
+              {% elif s.payment_state == 'stale' %}status-cancelled
               {% else %}status-{{ s.status }}{% endif %}">
               {% if s.payment_state == 'overdue' %}En retard
               {% elif s.payment_state == 'due' %}À payer
               {% elif s.payment_state == 'paid' %}Actif
+              {% elif s.payment_state == 'stale' %}Ancien impayé
               {% elif s.status == 'cancelled' %}Annulé
               {% elif s.status == 'expired' %}Expiré
               {% else %}{{ s.payment_state }}{% endif %}

@@ -345,6 +345,82 @@ async def debug_client(q: str = ""):
         db.close()
 
 
+@app.get("/debug-transactions", tags=["Debug"])
+async def debug_transactions(email: str = "", pages: int = 10):
+    """Fetch raw ThriveCart API transactions for one customer email.
+    Shows exactly what the API returns (incl. status of declined attempts)."""
+    api_key = os.getenv("THRIVECART_API_KEY", "")
+    if not api_key:
+        return {"error": "THRIVECART_API_KEY not set"}
+    if not email:
+        return {"error": "Ajoutez ?email=<adresse du client>"}
+
+    email = email.strip().lower()
+    matches = []
+    statuses_seen = {}
+    async with httpx.AsyncClient(timeout=30) as client:
+        for page in range(1, min(pages, 30) + 1):
+            resp = await client.get(
+                "https://thrivecart.com/api/external/transactions",
+                headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+                params={"page": page, "limit": 100, "per_page": 100},
+            )
+            if resp.status_code == 429:
+                await asyncio.sleep(15)
+                continue
+            if resp.status_code != 200:
+                return {"error": f"API {resp.status_code}", "detail": resp.text[:300],
+                        "matches_so_far": matches}
+            rows = resp.json().get("transactions") or resp.json().get("data") or []
+            if not rows:
+                break
+            for row in rows:
+                st = str(row.get("status", "?")).lower()
+                statuses_seen[st] = statuses_seen.get(st, 0) + 1
+                row_email = str(
+                    (row.get("customer") or {}).get("email") or row.get("email") or ""
+                ).strip().lower()
+                if row_email == email:
+                    matches.append(row)
+            await asyncio.sleep(1)
+
+    return {
+        "email": email,
+        "pages_scanned": page,
+        "all_statuses_seen_in_scan": statuses_seen,
+        "matches": len(matches),
+        "transactions": matches,
+    }
+
+
+@app.get("/debug-events", tags=["Debug"])
+async def debug_events(q: str = "", limit: int = 30):
+    """List received webhook events, optionally filtered by text (email, event type)."""
+    from models import PaymentEvent
+    db = SessionLocal()
+    try:
+        query = db.query(PaymentEvent).order_by(PaymentEvent.event_date.desc())
+        if q:
+            query = query.filter(PaymentEvent.raw_payload.ilike(f"%{q}%"))
+        rows = query.limit(min(limit, 100)).all()
+        return {
+            "query": q,
+            "found": len(rows),
+            "events": [
+                {
+                    "date": str(r.event_date),
+                    "event_type": r.event_type,
+                    "subscription_id": r.thrivecart_subscription_id,
+                    "amount": r.amount,
+                    "payload_extract": (r.raw_payload or "")[:600],
+                }
+                for r in rows
+            ],
+        }
+    finally:
+        db.close()
+
+
 @app.get("/debug-db", tags=["Debug"])
 async def debug_db():
     """Shows which database is in use and row counts."""

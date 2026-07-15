@@ -228,7 +228,7 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
 
     # Cancelled subs (often auto-cancelled after card declines) still owe their
     # missed payment — chase them if the due date passed within this window
-    cancel_grace = now - timedelta(days=int(os.getenv("CANCELLED_GRACE_DAYS", "90")))
+    cancel_grace = now - timedelta(days=int(os.getenv("CANCELLED_GRACE_DAYS", "120")))
 
     for s in recurring:
         due = s.next_payment_date

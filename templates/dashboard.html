@@ -195,6 +195,15 @@
     </div>
   </div>
 
+  <!-- Client search -->
+  <div style="margin-bottom:24px">
+    <input type="search" id="client-search" placeholder="🔍 Rechercher un client (nom, courriel ou produit)…"
+           oninput="filterClients()"
+           style="width:100%;max-width:480px;padding:13px 18px;border:1px solid #ddd;border-radius:10px;
+                  font-size:14px;background:white;box-shadow:0 1px 4px rgba(0,0,0,0.06);outline:none">
+    <span id="search-count" style="margin-left:12px;font-size:13px;color:#888"></span>
+  </div>
+
   <!-- Summary Cards -->
   <div class="cards">
     <a class="card blue" href="#section-recurring">
@@ -425,9 +434,25 @@
 </div>
 
 <script>
-  setTimeout(() => location.reload(), 60000);
+  // Auto-refresh every 60 seconds — paused while a search is active
+  setTimeout(() => {
+    const q = document.getElementById('client-search');
+    if (!q || !q.value) location.reload();
+  }, 60000);
   const alert = document.querySelector('.alert');
   if (alert) setTimeout(() => alert.style.display = 'none', 8000);
+
+  function filterClients() {
+    const q = document.getElementById('client-search').value.trim().toLowerCase();
+    let visible = 0;
+    document.querySelectorAll('.section tbody tr').forEach(tr => {
+      const match = !q || tr.textContent.toLowerCase().includes(q);
+      tr.style.display = match ? '' : 'none';
+      if (match && q) visible++;
+    });
+    document.getElementById('search-count').textContent =
+      q ? visible + ' résultat' + (visible !== 1 ? 's' : '') : '';
+  }
 </script>
 
 </body>

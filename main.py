@@ -261,11 +261,13 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
     overdue = [s for s in recurring if s.payment_state == "overdue"]
     due_now = [s for s in recurring if s.payment_state == "due"]
 
+    active_count = sum(1 for s in recurring if s.payment_state == "paid")
     stats = {
-        "total":     len(all_subs),
+        # Total = the sum of the visible cards: one-time + paid + due + overdue
+        "total":     len(one_time) + active_count + len(due_now) + len(overdue),
         "recurring": len(recurring),
         "one_time":  len(one_time),
-        "active":    sum(1 for s in recurring if s.payment_state == "paid"),
+        "active":    active_count,
         "due":       len(due_now),
         "overdue":   len(overdue),
         "inactive":  sum(1 for s in all_subs if s.status in ("cancelled", "expired")),

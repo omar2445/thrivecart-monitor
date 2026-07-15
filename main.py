@@ -584,7 +584,11 @@ async def _run_sync_background():
     api_key = os.getenv("THRIVECART_API_KEY", "")
     imported = updated = page = 0
     page_size = None
-    four_months_ago = datetime.utcnow() - timedelta(days=120)
+    # Import window: without enough history, subscribers whose card started
+    # declining months ago have no recent successful transaction and would
+    # never be imported (declined rebills don't appear in the API at all).
+    sync_days = int(os.getenv("SYNC_DAYS", "365"))
+    oldest_allowed = datetime.utcnow() - timedelta(days=sync_days)
 
     db = SessionLocal()
     try:
@@ -619,7 +623,7 @@ async def _run_sync_background():
                     for row in rows:
                         ts = row.get("timestamp")
                         row_date = datetime.utcfromtimestamp(ts) if ts else None
-                        if row_date and row_date < four_months_ago:
+                        if row_date and row_date < oldest_allowed:
                             stop_early = True
                             continue
                         is_new = _upsert_from_api_row(db, row)

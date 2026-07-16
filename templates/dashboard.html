@@ -489,11 +489,18 @@
   const alert = document.querySelector('.alert');
   if (alert) setTimeout(() => alert.style.display = 'none', 8000);
 
+  // Ignore accents (é = e) and repeated spaces so all names are findable
+  function normalize(t) {
+    return t.toLowerCase()
+            .normalize('NFD').replace(/[̀-ͯ]/g, '')
+            .replace(/\s+/g, ' ').trim();
+  }
+
   function filterClients() {
-    const q = document.getElementById('client-search').value.trim().toLowerCase();
+    const q = normalize(document.getElementById('client-search').value);
     let visible = 0;
     document.querySelectorAll('.section tbody tr').forEach(tr => {
-      const match = !q || tr.textContent.toLowerCase().includes(q);
+      const match = !q || normalize(tr.textContent).includes(q);
       tr.style.display = match ? '' : 'none';
       if (match && q) visible++;
     });

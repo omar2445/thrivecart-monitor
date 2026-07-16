@@ -721,6 +721,7 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
         or row.get("customer_name", "")
         or row.get("customer", {}).get("name", "")
     )
+    name = " ".join(name.split())  # collapse double spaces from ThriveCart
     product_name = product.get("name") or row.get("item_name") or row.get("product_name", "")
     product_id   = str(product.get("id") or row.get("item_id") or row.get("product_id", ""))
     raw_sub_id   = row.get("subscription_id") or order.get("subscription_id")

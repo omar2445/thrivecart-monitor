@@ -600,15 +600,22 @@ async def test_all_emails():
         unpaid = _find_unpaid(db)
 
         try:
-            await send_unpaid_report(unpaid, f"hebdomadaire du {now.strftime('%d/%m/%Y')}")
-            results["rapport_hebdomadaire"] = f"SENT ({len(unpaid)} impayés au total)"
+            week_since = now - timedelta(days=7)
+            weekly = _find_unpaid(db, since=week_since, until=now)
+            label = f"hebdomadaire (du {week_since.strftime('%d/%m')} au {now.strftime('%d/%m/%Y')})"
+            await send_unpaid_report(weekly, label)
+            results["rapport_hebdomadaire"] = f"SENT ({len(weekly)} impayés cette semaine)"
         except Exception as exc:
             results["rapport_hebdomadaire"] = f"FAILED: {exc}"
 
         try:
             from scheduler import MONTHS_FR
-            await send_unpaid_report(unpaid, f"mensuel — {MONTHS_FR[now.month - 1]} {now.year}")
-            results["rapport_mensuel"] = f"SENT ({len(unpaid)} impayés au total)"
+            first_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            prev_start = (first_this_month - timedelta(days=1)).replace(day=1)
+            monthly = _find_unpaid(db, since=prev_start, until=first_this_month)
+            label = f"mensuel — {MONTHS_FR[prev_start.month - 1]} {prev_start.year}"
+            await send_unpaid_report(monthly, label)
+            results["rapport_mensuel"] = f"SENT ({len(monthly)} impayés le mois dernier)"
         except Exception as exc:
             results["rapport_mensuel"] = f"FAILED: {exc}"
 

@@ -167,17 +167,20 @@ async def send_report(period_label: str, since: datetime | None = None, until: d
 
 
 async def send_weekly_report():
-    """Every Monday: the complete list of currently unpaid clients (old included)."""
+    """Every Monday: clients whose payment was due in the last 7 days and who didn't pay."""
     now = datetime.utcnow()
-    label = f"hebdomadaire du {now.strftime('%d/%m/%Y')}"
-    await send_report(label)
+    since = now - timedelta(days=7)
+    label = f"hebdomadaire (du {since.strftime('%d/%m')} au {now.strftime('%d/%m/%Y')})"
+    await send_report(label, since=since, until=now)
 
 
 async def send_monthly_report():
-    """1st of the month: the complete list of currently unpaid clients (old included)."""
+    """1st of the month: clients whose payment was due during the previous month and who didn't pay."""
     now = datetime.utcnow()
-    label = f"mensuel — {MONTHS_FR[now.month - 1]} {now.year}"
-    await send_report(label)
+    first_this_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    last_month_start = (first_this_month - timedelta(days=1)).replace(day=1)
+    label = f"mensuel — {MONTHS_FR[last_month_start.month - 1]} {last_month_start.year}"
+    await send_report(label, since=last_month_start, until=first_this_month)
 
 
 def create_scheduler() -> AsyncIOScheduler:

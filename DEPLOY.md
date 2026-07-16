@@ -36,6 +36,10 @@ APP_URL=https://moniteur.mondomaine.com
 # Database password (invent a long one)
 DB_PASSWORD=change-me-to-something-long
 
+# Dashboard login (required — protects all pages except the webhook)
+DASHBOARD_USER=admin
+DASHBOARD_PASS=choose-a-strong-password
+
 # ThriveCart
 THRIVECART_API_KEY=...
 

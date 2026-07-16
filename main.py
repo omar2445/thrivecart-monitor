@@ -58,6 +58,41 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# --- Password protection -----------------------------------------------------
+# Everything requires login except the ThriveCart webhook (ThriveCart can't
+# authenticate) and /health (uptime checks). Set DASHBOARD_USER/DASHBOARD_PASS
+# in the environment; if DASHBOARD_PASS is empty, protection is disabled.
+import base64
+import secrets as _secrets
+from starlette.responses import Response as _StarletteResponse
+
+_PUBLIC_PATHS = ("/webhook/thrivecart", "/health")
+
+
+@app.middleware("http")
+async def _basic_auth(request: Request, call_next):
+    password = os.getenv("DASHBOARD_PASS", "")
+    path = request.url.path
+    if not password or any(path == p or path.startswith(p + "/") for p in _PUBLIC_PATHS):
+        return await call_next(request)
+
+    username = os.getenv("DASHBOARD_USER", "admin")
+    header = request.headers.get("authorization", "")
+    if header.lower().startswith("basic "):
+        try:
+            decoded = base64.b64decode(header.split(" ", 1)[1]).decode("utf-8")
+            got_user, _, got_pass = decoded.partition(":")
+            if _secrets.compare_digest(got_user, username) and _secrets.compare_digest(got_pass, password):
+                return await call_next(request)
+        except Exception:
+            pass
+    return _StarletteResponse(
+        content="Authentification requise",
+        status_code=401,
+        headers={"WWW-Authenticate": 'Basic realm="Moniteur ThriveCart", charset="UTF-8"'},
+    )
+# -----------------------------------------------------------------------------
+
 
 def _verify_signature(body: bytes, signature: str | None) -> bool:
     """Verify the HMAC-SHA256 signature ThriveCart attaches to webhooks."""

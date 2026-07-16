@@ -398,6 +398,52 @@
     {% endif %}
   </div>
 
+  <!-- Section Historique (repliée) -->
+  <details class="section" id="section-history" style="padding:0">
+    <summary style="padding:18px 24px;cursor:pointer;font-size:15px;font-weight:600;color:#666;list-style-position:inside">
+      Historique — {{ recurring_history | length }} abonnements terminés, annulés ou anciens
+      <span style="font-weight:400;font-size:13px;color:#999">(cliquez pour afficher)</span>
+    </summary>
+    {% if recurring_history %}
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Courriel</th>
+          <th>Produit</th>
+          <th>Montant</th>
+          <th>Statut</th>
+          <th>Dernier paiement</th>
+          <th>Échéance passée</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in recurring_history %}
+        <tr>
+          <td><strong>{{ s.customer_name or '—' }}</strong></td>
+          <td class="email">{{ s.customer_email }}</td>
+          <td>{{ s.product_name or '—' }}</td>
+          <td class="amount">{{ "%.2f"|format(s.amount or 0) }} $</td>
+          <td>
+            <span class="status-pill status-cancelled">
+              {% if s.payment_state == 'stale' %}Ancien impayé
+              {% elif s.status == 'cancelled' %}Annulé
+              {% elif s.status == 'paused' %}En pause
+              {% elif s.status == 'expired' %}Expiré
+              {% else %}{{ s.status }}{% endif %}
+            </span>
+          </td>
+          <td class="date">{{ s.last_payment_date.strftime('%d %b %Y') if s.last_payment_date else '—' }}</td>
+          <td class="date">{{ s.next_payment_date.strftime('%d %b %Y') if s.next_payment_date else '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">Aucun historique.</div>
+    {% endif %}
+  </details>
+
   <!-- Section Achats uniques -->
   <div class="section" id="section-one-time">
     <div class="section-header">
@@ -453,6 +499,9 @@
     });
     document.getElementById('search-count').textContent =
       q ? visible + ' résultat' + (visible !== 1 ? 's' : '') : '';
+    // Open the history section while searching so old rows can be found
+    const hist = document.getElementById('section-history');
+    if (hist) hist.open = !!q;
   }
 </script>
 

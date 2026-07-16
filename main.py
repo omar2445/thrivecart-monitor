@@ -273,16 +273,21 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
         "inactive":  sum(1 for s in all_subs if s.status in ("cancelled", "expired")),
     }
 
+    # Main table: only currently relevant subscribers; the rest is history
+    recurring_current = [s for s in recurring if s.payment_state in ("paid", "due", "overdue")]
+    recurring_history = [s for s in recurring if s.payment_state not in ("paid", "due", "overdue")]
+
     return templates.TemplateResponse("dashboard.html", {
-        "request":       request,
-        "recurring":     recurring,
-        "one_time":      one_time,
-        "overdue":       overdue,
-        "due_now":       due_now,
-        "stats":         stats,
-        "now":           now.strftime("%d %b %Y à %H:%M UTC"),
-        "message":       message,
-        "message_type":  message_type,
+        "request":           request,
+        "recurring":         recurring_current,
+        "recurring_history": recurring_history,
+        "one_time":          one_time,
+        "overdue":           overdue,
+        "due_now":           due_now,
+        "stats":             stats,
+        "now":               now.strftime("%d %b %Y à %H:%M UTC"),
+        "message":           message,
+        "message_type":      message_type,
     })
 
 

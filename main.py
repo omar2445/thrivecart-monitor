@@ -745,6 +745,8 @@ def _upsert_from_api_row(db: Session, row: dict) -> bool:
         status = "expired"
     elif sub_status_raw in ("past_due", "pastdue", "failed", "delinquent"):
         status = "failed"
+    elif sub_status_raw in ("paused", "pause"):
+        status = "paused"
     else:
         status = "active"
 

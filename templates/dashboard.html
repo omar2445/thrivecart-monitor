@@ -380,6 +380,7 @@
               {% elif s.payment_state == 'paid' %}Actif
               {% elif s.payment_state == 'stale' %}Ancien impayé
               {% elif s.status == 'cancelled' %}Annulé
+              {% elif s.status == 'paused' %}En pause
               {% elif s.status == 'expired' %}Expiré
               {% else %}{{ s.payment_state }}{% endif %}
             </span>

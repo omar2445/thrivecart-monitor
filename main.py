@@ -228,7 +228,7 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
 
     # Only chase unpaid whose due date passed within this window — older
     # missed payments are stale history, not active monitoring targets
-    stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "120")))
+    stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "365")))
 
     for s in recurring:
         due = s.next_payment_date
@@ -535,7 +535,7 @@ async def debug_db():
         db_kind = "PostgreSQL (persistent)" if DATABASE_URL.startswith("postgresql") else "SQLite (EPHEMERAL — data lost on each redeploy!)"
 
         now = datetime.utcnow()
-        stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "120")))
+        stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "365")))
         recurring = [
             s for s in db.query(Subscription).all()
             if (s.subscription_type or "recurring") == "recurring"

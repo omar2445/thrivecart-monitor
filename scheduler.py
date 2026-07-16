@@ -110,7 +110,7 @@ def _find_unpaid(db: Session, since: datetime | None = None, until: datetime | N
     Optional since/until restrict to due dates within that window."""
     now = datetime.utcnow()
     # Only report missed payments from the last N days — older is stale history
-    stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "120")))
+    stale_cutoff = now - timedelta(days=int(os.getenv("UNPAID_MAX_DAYS", "365")))
     from sqlalchemy import or_
     query = (
         db.query(Subscription)

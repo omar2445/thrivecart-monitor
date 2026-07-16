@@ -277,6 +277,14 @@ def _render_dashboard(request: Request, db: Session, message: str = "", message_
     recurring_current = [s for s in recurring if s.payment_state in ("paid", "due", "overdue")]
     recurring_history = [s for s in recurring if s.payment_state not in ("paid", "due", "overdue")]
 
+    # Most recent first, everywhere
+    _oldest = datetime.min
+    recurring_current.sort(key=lambda s: s.last_payment_date or _oldest, reverse=True)
+    recurring_history.sort(key=lambda s: s.last_payment_date or _oldest, reverse=True)
+    one_time.sort(key=lambda s: s.last_payment_date or _oldest, reverse=True)
+    overdue.sort(key=lambda s: s.next_payment_date or _oldest, reverse=True)
+    due_now.sort(key=lambda s: s.next_payment_date or _oldest, reverse=True)
+
     return templates.TemplateResponse("dashboard.html", {
         "request":           request,
         "recurring":         recurring_current,
@@ -798,11 +806,9 @@ async def _run_sync_background():
     api_key = os.getenv("THRIVECART_API_KEY", "")
     imported = updated = page = 0
     page_size = None
-    # Import window: without enough history, subscribers whose card started
-    # declining months ago have no recent successful transaction and would
-    # never be imported (declined rebills don't appear in the API at all).
-    sync_days = int(os.getenv("SYNC_DAYS", "365"))
-    oldest_allowed = datetime.utcnow() - timedelta(days=sync_days)
+    # Import window: SYNC_DAYS=0 (default) imports ALL history.
+    sync_days = int(os.getenv("SYNC_DAYS", "0"))
+    oldest_allowed = (datetime.utcnow() - timedelta(days=sync_days)) if sync_days > 0 else None
 
     db = SessionLocal()
     try:
@@ -837,7 +843,7 @@ async def _run_sync_background():
                     for row in rows:
                         ts = row.get("timestamp")
                         row_date = datetime.utcfromtimestamp(ts) if ts else None
-                        if row_date and row_date < oldest_allowed:
+                        if oldest_allowed and row_date and row_date < oldest_allowed:
                             stop_early = True
                             continue
                         is_new = _upsert_from_api_row(db, row)
